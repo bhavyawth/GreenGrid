@@ -1,0 +1,125 @@
+# =========================
+# Node / Next.js
+# =========================
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Next.js
+.next/
+.vercel/
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+# Keep example env files
+!.env.example
+
+# =========================
+# Logs
+# =========================
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# =========================
+# Python / AI Service
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+ENV/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ML artifacts / generated files
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+*.joblib
+
+# =========================
+# Local databases / data
+# =========================
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# MQTT / runtime files
+# =========================
+*.pid
+*.pid.lock
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# IDE / Editors
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# Temporary files
+# =========================
+tmp/
+temp/
+*.tmp
+*.temp
+
+# =========================
+# Coverage / testing
+# =========================
+coverage/
+.nyc_output/
+
+# =========================
+# Vercel
+# =========================
+.vercel/
+
+# =========================
+# Python environment/config
+# =========================
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# =========================
+# Blockchain generated artifacts
+# =========================
+cache/
+artifacts/
+
+# Hardhat
+hardhat/cache/
+hardhat/artifacts/

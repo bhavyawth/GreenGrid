@@ -1,0 +1,43 @@
+{
+  "name": "carbon-credit-platform",
+  "version": "1.0.0",
+  "description": "AI-Driven Electricity Monitoring and Blockchain-Based Carbon Credit Platform",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "dev:ai": "python -m uvicorn app.main:app --port 8000 --app-dir D:/ai_service",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "bcryptjs": "^2.4.3",
+    "crypto-js": "^4.1.1",
+    "date-fns": "^2.30.0",
+    "dotenv": "^16.3.1",
+    "framer-motion": "^12.40.0",
+    "jsonwebtoken": "^9.0.0",
+    "lucide-react": "^0.294.0",
+    "mqtt": "^5.15.2",
+    "next": "^14.2.35",
+    "pg": "^8.23.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^2.10.3",
+    "viem": "^2.55.19"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/crypto-js": "^4.2.2",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20.4.2",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.27",
+    "tailwindcss": "^3.3.3",
+    "typescript": "^5.1.6"
+  }
+}
