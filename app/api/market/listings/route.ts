@@ -41,6 +41,9 @@ export async function POST(request: NextRequest) {
     if (!cert) {
       return NextResponse.json({ error: 'Certificate not found' }, { status: 404 });
     }
+    if (!cert.verified) {
+      return NextResponse.json({ error: 'Only verified certificates can be listed' }, { status: 400 });
+    }
     if (cert.ownerId !== sellerId) {
       return NextResponse.json({ error: 'You do not own this certificate' }, { status: 403 });
     }

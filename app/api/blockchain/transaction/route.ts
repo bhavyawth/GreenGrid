@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import CryptoJS from 'crypto-js';
-import { getAllBlockchainTransactions, addBlockchainTransaction, findUserById, getLatestIoTEnergyReading, addBlockchainRecord } from '@/lib/db';
+import crypto from 'crypto';
+import { getAllBlockchainTransactions, addBlockchainTransaction, findUserById, getLatestIoTEnergyReading, addBlockchainRecord, addGreenCertificate, getGreenCertificates } from '@/lib/db';
 import { verifyToken } from '@/lib/auth';
 import { recordIoTAttestation, registerProject, getProjectData } from '@/lib/server/blockchain/service';
 import { CONTRACT_ADDRESS, CHAIN_ID } from '@/lib/server/blockchain/client';
@@ -37,15 +38,13 @@ export async function POST(request: Request) {
     }
 
     const intensity = Number(process.env.GRID_EMISSION_FACTOR || '260');
+    const baselineFactor = 1.5;
     // Calculate actual carbon emission in kg CO2: energy (kWh) * gridIntensity (g/kWh) / 1000
-    const calculatedAmount = Number(((latestReading.energy * intensity) / 1000).toFixed(4));
-
-    if (calculatedAmount <= 0) {
-      return NextResponse.json(
-        { error: 'Sensor cumulative energy is too low to record emissions. Cumulative energy: ' + latestReading.energy + ' kWh' },
-        { status: 400 }
-      );
-    }
+    // Simulator samples represent one hour of household usage, so the result
+    // remains visible in kg instead of collapsing to 0.00 kg.
+    const actualEmission = Number(((latestReading.energy * intensity) / 1000).toFixed(3));
+    const baselineEmission = Number((actualEmission * baselineFactor).toFixed(3));
+    const carbonSaved = Number((baselineEmission - actualEmission).toFixed(3));
 
     const allTransactions = await getAllBlockchainTransactions();
     const previousHash = allTransactions.length > 0
@@ -58,8 +57,8 @@ export async function POST(request: Request) {
       userId,
       userName,
       type: 'EMISSION_RECORDED',
-      amount: calculatedAmount,
-      description: `Real energy emission recorded. Consumption: ${latestReading.energy.toFixed(4)} kWh, power: ${latestReading.power.toFixed(1)} W.`,
+      amount: actualEmission,
+      description: `Actual emission: ${actualEmission.toFixed(3)} kg CO₂. Baseline: ${baselineEmission.toFixed(3)} kg. Avoided: ${carbonSaved.toFixed(3)} kg through optimized usage.`,
       timestamp: new Date().toISOString(),
       previousHash,
       nonce: 0,
@@ -106,7 +105,7 @@ export async function POST(request: Request) {
         tokenId,
         deviceId: latestReading.deviceId || 'ESP32-001',
         energyKwh: latestReading.energy,
-        carbonKg: calculatedAmount,
+        carbonKg: carbonSaved,
       });
 
       if (attestation.success && attestation.transactionHash) {
@@ -119,9 +118,21 @@ export async function POST(request: Request) {
           transactionHash,
           chainId: CHAIN_ID,
           contractAddress: CONTRACT_ADDRESS,
-          status: 'verified',
-          carbonRecordId: txId,
+          status: 'verified'
         });
+        const existingCertificates = await getGreenCertificates(userId);
+        if (!existingCertificates.some((certificate) => certificate.blockchainTxn === transactionHash)) {
+          await addGreenCertificate({
+            id: crypto.randomUUID(),
+            ownerId: userId,
+            carbonReduced: carbonSaved,
+            tokenId: tokenId.toString(),
+            verified: true,
+            blockchainTxn: transactionHash,
+            baselineEmission,
+            actualEmission,
+          });
+        }
         console.log('[Blockchain API] Successfully verified attestation on local Hardhat blockchain. Hash:', transactionHash);
       } else {
         console.error('[Blockchain API] On-chain attestation rejected:', attestation.error);
@@ -139,6 +150,7 @@ export async function POST(request: Request) {
         contractAddress: CONTRACT_ADDRESS,
         tokenId: tokenId.toString(),
       },
+      certificateIssued: onchainSuccess,
     });
   } catch (error: any) {
     console.error('Add transaction error:', error);

@@ -53,6 +53,8 @@ async function setup() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS market_balance NUMERIC NOT NULL DEFAULT 100000;`);
+    await client.query(`ALTER TABLE users ALTER COLUMN market_balance SET DEFAULT 100000;`);
 
     // 3. Create energy_readings table
     console.log('Creating "energy_readings" table...');
@@ -170,6 +172,8 @@ async function setup() {
         blockchain_txn VARCHAR(255)
       );
     `);
+    await client.query(`ALTER TABLE green_certificates ADD COLUMN IF NOT EXISTS baseline_emission NUMERIC NOT NULL DEFAULT 0;`);
+    await client.query(`ALTER TABLE green_certificates ADD COLUMN IF NOT EXISTS actual_emission NUMERIC NOT NULL DEFAULT 0;`);
 
     // 11. Create carbon market tables
     await client.query(`

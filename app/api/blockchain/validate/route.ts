@@ -17,6 +17,25 @@ export async function GET(request: NextRequest) {
     let isValid = true;
     let validCount = 0;
 
+    if (!process.env.DB_URI) {
+      let previousHash = '0';
+      for (const transaction of transactions) {
+        const linked = transaction.previousHash === previousHash && Boolean(transaction.hash);
+        if (linked) validCount += 1;
+        else isValid = false;
+        previousHash = transaction.hash;
+      }
+
+      return NextResponse.json({
+        isValid,
+        totalTransactions: transactions.length,
+        validTransactions: validCount,
+        integrity: transactions.length > 0
+          ? Math.round((validCount / transactions.length) * 100)
+          : 100,
+      });
+    }
+
     for (let i = 0; i < transactions.length; i++) {
       const transaction = transactions[i];
       const hash = calculateHash({

@@ -50,24 +50,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
 
   const fetchIoTData = async () => {
     try {
-      const [latest, readings, status, summary, configuredIntensity] = await Promise.all([
+      const results = await Promise.allSettled([
         getLatestReading(token),
         getIoTReadings(token, 50),
         getIoTStatus(token),
         getHourlySummary(token),
-        getCarbonIntensity().catch((error) => {
-          console.error('Unable to load configured carbon factor:', error);
-          return null;
-        })
+        getCarbonIntensity()
       ]);
 
-      setIotReading(latest.reading);
+      const latest = results[0].status === 'fulfilled' ? results[0].value : null;
+      const readings = results[1].status === 'fulfilled' ? results[1].value : { readings: [] };
+      const status = results[2].status === 'fulfilled' ? results[2].value : null;
+      const summary = results[3].status === 'fulfilled' ? results[3].value : [];
+      const configuredIntensity = results[4].status === 'fulfilled' ? results[4].value : null;
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(`Unable to load dashboard data source ${index + 1}:`, result.reason);
+        }
+      });
+
+      setIotReading(latest?.reading || readings.readings[readings.readings.length - 1] || null);
       setIotReadings(readings.readings);
       setIotStatus(status);
       setHourlyData(summary);
       setTotalDayEmission(summary.reduce((sum, item) => sum + (item.emission || 0), 0));
       if (configuredIntensity) setIntensity(configuredIntensity.intensity);
-      setIotError('');
+      setIotError(latest || readings.readings.length > 0 ? '' : 'Backend unavailable');
     } catch (error) {
       setIotError(error instanceof Error ? error.message : 'Backend unavailable');
     } finally {

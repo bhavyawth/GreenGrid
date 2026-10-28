@@ -30,13 +30,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const savedUser = localStorage.getItem('user');
 
     if (savedToken && savedUser) {
+      let parsedUser: User | null = null;
       try {
-        setToken(savedToken);
-        setUser(JSON.parse(savedUser));
+        parsedUser = JSON.parse(savedUser);
       } catch {
+        parsedUser = null;
+      }
+
+      if (!parsedUser) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        setLoading(false);
+        return;
       }
+
+      fetch('/api/auth/verify', { headers: { Authorization: `Bearer ${savedToken}` } })
+        .then(async (response) => {
+          if (!response.ok) throw new Error('Invalid session');
+          const data = await response.json();
+          setToken(savedToken);
+          setUser(data.user || parsedUser);
+        })
+        .catch(() => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setToken(null);
+          setUser(null);
+        })
+        .finally(() => setLoading(false));
+      return;
     }
 
     setLoading(false);

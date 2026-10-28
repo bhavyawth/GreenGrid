@@ -37,7 +37,7 @@ export default function AdminDashboard({ token }: { token: string }) {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
   useEffect(() => {
     fetchData();

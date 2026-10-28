@@ -20,11 +20,12 @@ export async function GET(request: NextRequest) {
     // For each record, fetch its verified reduction amount from the local smart contract
     const recordsWithReduction = await Promise.all(
       records.map(async (r) => {
-        let carbonReduction = 0;
+        let carbonReduction = Number(r.carbonReduction || 0);
         try {
           if (r.tokenId) {
             const project = await getProjectData(BigInt(r.tokenId));
-            carbonReduction = Number(project.carbonReduction || 0);
+            // The contract stores carbon reduction in grams; the app displays kg.
+            carbonReduction = Number(project.carbonReduction || 0) / 1000;
           }
         } catch (e: any) {
           console.warn(`[onchain/records] Failed to fetch on-chain data for token ${r.tokenId}:`, e.message);

@@ -11,6 +11,7 @@ export function formatKilograms(value: number): string {
   if (value >= 1000) {
     return `${(value / 1000).toFixed(2)} T`;
   }
+  if (value > 0 && value < 0.01) return `${value.toFixed(3)} kg`;
   return `${value.toFixed(2)} kg`;
 }
 

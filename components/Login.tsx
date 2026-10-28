@@ -18,7 +18,7 @@ export default function Login({ onLoginSuccess, initialMode = 'login' }: LoginPr
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
   useEffect(() => {
     setIsLogin(initialMode !== 'register');
