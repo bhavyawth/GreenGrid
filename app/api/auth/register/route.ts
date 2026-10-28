@@ -28,9 +28,9 @@ export async function POST(request: NextRequest) {
       totalEnergyUsed: 0,
     };
 
-    await createUser(user);
-
     const token = generateToken(user.id);
+
+    await createUser(user);
 
     return NextResponse.json({
       token,
@@ -43,6 +43,12 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Register error:', error);
+    if (error instanceof Error && error.message.startsWith('JWT_SECRET')) {
+      return NextResponse.json(
+        { error: 'Authentication is unavailable because the server secret is not configured.' },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: 'Registration failed' }, { status: 500 });
   }
 }

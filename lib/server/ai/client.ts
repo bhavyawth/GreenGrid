@@ -8,6 +8,9 @@ export interface HealthStatus {
   available: boolean;
   status?: string;
   models_loaded?: boolean;
+  trained_models_ready?: boolean;
+  emission_method?: string;
+  forecast_method?: string;
   error?: string;
 }
 
@@ -20,15 +23,14 @@ export interface EmissionPredictRequest {
 
 export interface EmissionPredictResponse {
   carbonEmission: number;
-  confidence: number;
+  confidence: number | null;
   modelVersion: string;
+  method: string;
 }
 
 export interface GridReadingInput {
   timestamp: string;
   gridIntensity: number;
-  power?: number;
-  energy?: number;
 }
 
 export interface ForecastPredictRequest {
@@ -42,8 +44,11 @@ export interface ForecastPoint {
 }
 
 export interface ForecastPredictResponse {
-  next24Hours: ForecastPoint[];
+  forecast: ForecastPoint[];
+  horizonHours: number;
   modelVersion: string;
+  target: string;
+  source: string;
 }
 
 export const aiClient = {
@@ -51,6 +56,7 @@ export const aiClient = {
     try {
       const res = await fetch(`${AI_SERVICE_URL}/health`, {
         signal: AbortSignal.timeout(3000), // 3s timeout
+        cache: 'no-store',
       });
       if (!res.ok) {
         return { available: false, error: `HTTP error! Status: ${res.status}` };
@@ -60,6 +66,9 @@ export const aiClient = {
         available: true,
         status: data.status,
         models_loaded: data.models_loaded,
+        trained_models_ready: data.trained_models_ready,
+        emission_method: data.emission_method,
+        forecast_method: data.forecast_method,
       };
     } catch (e: any) {
       return {

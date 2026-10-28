@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/pg';
-import { verifyToken } from '@/lib/auth';
+import { getUserIdFromAuthorizationHeader } from '@/lib/auth';
 import { toHouseholdEquivalent, HOUSEHOLD_LOAD_SCALE_FACTOR } from '@/lib/household-equivalent';
 
 export const dynamic = 'force-dynamic';
@@ -11,9 +11,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: NextRequest) {
   try {
-    const token = request.headers.get('authorization')?.split(' ')[1];
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const userId = verifyToken(token);
+    const userId = getUserIdFromAuthorizationHeader(request.headers.get('authorization'));
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const intensity = Number(process.env.GRID_EMISSION_FACTOR || '260');
@@ -47,7 +45,7 @@ export async function GET(request: NextRequest) {
       return {
         time: hourStr,
         consumption,
-        rawConsumption: Number(rawConsumption.toFixed(4)),
+        rawConsumption: Number(rawConsumption.toFixed(6)),
         averagePower: Number(estimatedPower.toFixed(2)),
         carbonIntensity: intensity,
         emission,

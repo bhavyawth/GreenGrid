@@ -1,19 +1,29 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { aiService } from '@/lib/server/ai/service';
+import { getUserIdFromAuthorizationHeader } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/ai/forecast
- * Retrieves a 24-hour grid carbon-intensity forecast using the LSSVM model trained on real PZEM readings.
+ * Returns a grid-carbon-intensity forecast only when validated grid-intensity history is available.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  if (!getUserIdFromAuthorizationHeader(request.headers.get('authorization'))) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const result = await aiService.getCarbonForecast(24);
     if (!result.success) {
       if (result.insufficientData) {
         return NextResponse.json(
-          { success: false, error: 'Insufficient real sensor data. Need at least 8 readings.', insufficientData: true },
+          {
+            success: false,
+            error: result.error || 'Validated hourly grid-carbon observations are not available.',
+            source: result.source || 'unconfigured',
+            insufficientData: true,
+          },
           { status: 400 }
         );
       }

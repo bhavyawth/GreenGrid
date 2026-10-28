@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getIoTEnergyReadings } from '@/lib/db';
+import { getUserIdFromAuthorizationHeader } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
+  if (!getUserIdFromAuthorizationHeader(request.headers.get('authorization'))) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const limitParam = request.nextUrl.searchParams.get('limit');
     const requestedLimit = Number(limitParam || 50);

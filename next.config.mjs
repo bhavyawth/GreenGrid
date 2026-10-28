@@ -2,8 +2,8 @@
 const nextConfig = {
   experimental: {
     instrumentationHook: true,
+    serverComponentsExternalPackages: ['mqtt', 'viem'],
   },
-  serverExternalPackages: ['mqtt', 'viem'],
 };
 
 export default nextConfig;

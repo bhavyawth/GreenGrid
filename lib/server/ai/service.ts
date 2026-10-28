@@ -1,21 +1,9 @@
 /**
  * Server-side AI service that bridges raw IoT database readings with the AI model client
  */
-import { getIoTEnergyReadings, getLatestIoTEnergyReading, addAiPrediction } from '@/lib/db';
-import { aiClient, HealthStatus, EmissionPredictResponse, ForecastPoint } from './client';
+import { getIoTEnergyReadings } from '@/lib/db';
+import { aiClient, HealthStatus, EmissionPredictResponse } from './client';
 import { toHouseholdEquivalent, HOUSEHOLD_LOAD_SCALE_FACTOR } from '@/lib/household-equivalent';
-
-// Helper to calculate a deterministic grid carbon intensity based on timestamp
-// to simulate real-world grid mix (e.g. higher in peak hours 17-21, lower otherwise)
-export function getDeterministicGridIntensity(timestampStr: string): number {
-  const date = new Date(timestampStr);
-  const hour = date.getHours();
-  const isPeak = hour >= 17 && hour <= 21;
-  const base = isPeak ? 450 : 250;
-  // Use a smooth sine wave based on time to add realistic variation
-  const variance = Math.sin((date.getTime() / (1000 * 60 * 60 * 2)) * Math.PI) * 75;
-  return Math.max(100, Math.round(base + variance));
-}
 
 export interface AIForecastItem {
   hour: number;
@@ -29,6 +17,7 @@ export interface AIForecastResponse {
   forecast?: AIForecastItem[];
   insufficientData?: boolean;
   error?: string;
+  source?: string;
 }
 
 export const aiService = {
@@ -36,20 +25,31 @@ export const aiService = {
     return aiClient.getHealth();
   },
 
-  async estimateCurrentEmission(): Promise<{ success: boolean; data?: EmissionPredictResponse; error?: string; insufficientData?: boolean; scaleFactor?: number }> {
+  async estimateCurrentEmission(): Promise<{ success: boolean; data?: EmissionPredictResponse; error?: string; insufficientData?: boolean; scaleFactor?: number; source?: string }> {
     try {
-      const latest = await getLatestIoTEnergyReading();
-      if (!latest) {
+      const readings = await getIoTEnergyReadings(2);
+      if (readings.length < 2) {
         return { success: false, insufficientData: true };
       }
 
-      const powerKw = toHouseholdEquivalent(latest.power) / 1000;
-      const energyKwh = toHouseholdEquivalent(latest.energy);
-      const gridIntensity = getDeterministicGridIntensity(latest.timestamp.toISOString());
+      const previous = readings[0];
+      const latest = readings[1];
+      const rawIntervalEnergy = latest.energy - previous.energy;
+      if (rawIntervalEnergy < 0) {
+        return {
+          success: false,
+          error: 'The cumulative meter reading decreased; check for a meter reset before estimating interval emissions.',
+        };
+      }
+
+      const gridIntensity = Number(process.env.GRID_EMISSION_FACTOR || '260');
+      if (!Number.isFinite(gridIntensity) || gridIntensity < 0 || gridIntensity > 2000) {
+        return { success: false, error: 'GRID_EMISSION_FACTOR must be a finite value between 0 and 2000.' };
+      }
 
       const prediction = await aiClient.predictEmission({
-        power: powerKw,
-        energy: energyKwh,
+        power: toHouseholdEquivalent(latest.power) / 1000,
+        energy: toHouseholdEquivalent(rawIntervalEnergy),
         gridIntensity,
         timestamp: latest.timestamp.toISOString(),
       });
@@ -58,6 +58,7 @@ export const aiService = {
         success: true,
         data: prediction,
         scaleFactor: HOUSEHOLD_LOAD_SCALE_FACTOR,
+        source: 'configured grid-intensity estimate; household-equivalent interval energy',
       };
     } catch (e: any) {
       console.error('[AI Service] Emission estimation failed:', e.message);
@@ -69,78 +70,15 @@ export const aiService = {
   },
 
   async getCarbonForecast(horizonHours: number = 24): Promise<AIForecastResponse> {
-    try {
-      // Get historical readings (last 100 points) to train the LSSVM model
-      const readings = await getIoTEnergyReadings(100);
-      
-      // We need at least 8 readings (lag of 6 + some points) to fit LSSVM correctly
-      if (readings.length < 8) {
-        return { success: false, insufficientData: true };
-      }
-
-      // Map readings to GridReading schema
-      const history = readings.map((r: any) => {
-        const gridIntensity = getDeterministicGridIntensity(r.timestamp.toISOString());
-        return {
-          timestamp: r.timestamp.toISOString(),
-          gridIntensity,
-          power: r.power / 1000,
-          energy: r.energy,
-        };
-      });
-
-      const response = await aiClient.predictForecast({
-        history,
-        horizonHours,
-      });
-
-      // Persist forecast predictions in Neon PostgreSQL
-      const inputStart = readings[0].timestamp.toISOString();
-      const inputEnd = readings[readings.length - 1].timestamp.toISOString();
-      const deviceId = readings[readings.length - 1].deviceId || 'ESP32-001';
-
-      try {
-        const savePromises = response.next24Hours.map(pt =>
-          addAiPrediction({
-            deviceId,
-            predictionValue: pt.predictedIntensity,
-            predictionHorizon: pt.hour,
-            modelVersion: response.modelVersion || 'lssvm-v0.1',
-            inputWindowStart: inputStart,
-            inputWindowEnd: inputEnd,
-          })
-        );
-        await Promise.all(savePromises);
-        console.log(`[AI Service] Persisted ${response.next24Hours.length} prediction points to PostgreSQL`);
-      } catch (saveError: any) {
-        console.error('[AI Service] Failed to persist predictions:', saveError.message);
-      }
-
-      const now = new Date();
-      const currentHour = now.getHours();
-
-      // Transform forecast points to dashboard format
-      const forecast = response.next24Hours.map((pt: ForecastPoint) => {
-        const hour = (currentHour + pt.hour) % 24;
-        const carbonIntensity = pt.predictedIntensity;
-        return {
-          hour,
-          carbonIntensity,
-          isGreenWindow: carbonIntensity < 300,
-          recommendedLoad: (carbonIntensity < 300 ? 'HIGH' : carbonIntensity < 400 ? 'MEDIUM' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW',
-        };
-      });
-
-      return {
-        success: true,
-        forecast,
-      };
-    } catch (e: any) {
-      console.error('[AI Service] Carbon forecast failed:', e.message);
-      return {
-        success: false,
-        error: e.message || 'Forecast prediction failed',
-      };
+    if (!Number.isInteger(horizonHours) || horizonHours < 1 || horizonHours > 24) {
+      return { success: false, error: 'Forecast horizon must be an integer between 1 and 24 hours.' };
     }
+
+    return {
+      success: false,
+      insufficientData: true,
+      source: 'unconfigured',
+      error: 'No validated hourly grid-carbon observations are configured. PZEM readings measure household demand, not grid carbon intensity.',
+    };
   },
 };

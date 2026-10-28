@@ -5,7 +5,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { Activity, TrendingUp, AlertCircle, Gauge, DollarSign, Cpu, Wifi, WifiOff } from 'lucide-react';
 import { EnergyReading, CarbonEmission } from '../types/index';
 import { formatKilograms, formatTime, getColorForCarbonIntensity } from '../utils/formatters';
-import { getIoTReadings, getIoTStatus, getLatestReading, getHourlySummary, IoTEnergyReading, IoTStatus } from '../lib/api';
+import { getIoTReadings, getIoTStatus, getLatestReading, getHourlySummary, getCarbonIntensity, IoTEnergyReading, IoTStatus } from '../lib/api';
 import { toHouseholdEquivalent, HOUSEHOLD_LOAD_SCALE_FACTOR } from '../lib/household-equivalent';
 
 const ESTIMATED_TARIFF_INR_PER_KWH = 8;
@@ -46,14 +46,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
   const [iotStatus, setIotStatus] = useState<IoTStatus | null>(null);
   const [iotLoading, setIotLoading] = useState(true);
   const [iotError, setIotError] = useState('');
+  const [intensity, setIntensity] = useState(260);
 
   const fetchIoTData = async () => {
     try {
-      const [latest, readings, status, summary] = await Promise.all([
-        getLatestReading(),
-        getIoTReadings(50),
-        getIoTStatus(),
-        getHourlySummary(token)
+      const [latest, readings, status, summary, configuredIntensity] = await Promise.all([
+        getLatestReading(token),
+        getIoTReadings(token, 50),
+        getIoTStatus(token),
+        getHourlySummary(token),
+        getCarbonIntensity().catch((error) => {
+          console.error('Unable to load configured carbon factor:', error);
+          return null;
+        })
       ]);
 
       setIotReading(latest.reading);
@@ -61,9 +66,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
       setIotStatus(status);
       setHourlyData(summary);
       setTotalDayEmission(summary.reduce((sum, item) => sum + (item.emission || 0), 0));
+      if (configuredIntensity) setIntensity(configuredIntensity.intensity);
       setIotError('');
     } catch (error) {
-      setIotError('Backend unavailable');
+      setIotError(error instanceof Error ? error.message : 'Backend unavailable');
     } finally {
       setIotLoading(false);
     }
@@ -71,14 +77,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
 
   useEffect(() => {
     fetchIoTData();
-    const interval = window.setInterval(fetchIoTData, 1000);
+    const interval = window.setInterval(fetchIoTData, 5000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [token]);
 
-  const intensity = 260; // Configured grid emission factor
   const intensityColor = getColorForCarbonIntensity(intensity);
   const isHighEmission = intensity > 400;
-  const intensityLabel = intensity < 250 ? 'Very Clean' : intensity < 350 ? 'Clean' : intensity < 450 ? 'Moderate' : 'High';
   const sensorOnline = Boolean(iotStatus?.online);
   const mqttConnected = Boolean(iotStatus?.mqttConnected);
   const lastReadingDate = iotReading?.receivedAt || iotStatus?.lastReadingAt;
@@ -240,7 +244,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
         <div className="metric-card accent-blue">
           <div className="flex items-start justify-between relative z-10">
             <div>
-              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Energy Today</p>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Cumulative Meter Energy</p>
               <p className="text-3xl font-bold text-white mt-2 tabular-nums">{iotReading ? toHouseholdEquivalent(iotReading.energy).toFixed(4) : '0.0000'} <span className="text-lg text-zinc-500">kWh</span></p>
               <p className="text-xs text-zinc-500 mt-1.5">
                 Household-equivalent estimate ({HOUSEHOLD_LOAD_SCALE_FACTOR}×); raw sensor: {iotReading ? `${iotReading.energy.toFixed(4)} kWh` : '0.0000 kWh'}
@@ -256,11 +260,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
         <div className="metric-card accent-amber">
           <div className="flex items-start justify-between relative z-10">
             <div>
-              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Grid Carbon Intensity</p>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Configured Carbon Factor</p>
               <p className="text-3xl font-bold text-white mt-2 tabular-nums">{intensity.toFixed(0)} <span className="text-lg text-zinc-500">g/kWh</span></p>
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: intensityColor }} />
-                <p className="text-xs" style={{ color: intensityColor }}>{intensityLabel}</p>
+                <p className="text-xs text-zinc-500">Estimate; no live grid provider connected</p>
               </div>
             </div>
             <div className="p-2.5 rounded-xl" style={{ backgroundColor: `${intensityColor}15` }}>
@@ -273,11 +277,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
         <div className="metric-card accent-red">
           <div className="flex items-start justify-between relative z-10">
             <div>
-              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Carbon Today</p>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Estimated Carbon (Last 24h)</p>
               <p className="text-3xl font-bold text-white mt-2 tabular-nums">
-                {formatKilograms((toHouseholdEquivalent(iotReading?.energy || 0) * intensity) / 1000)}
+                {formatKilograms(totalDayEmission)}
               </p>
-              <p className="text-xs text-zinc-500 mt-1.5">Estimated household-equivalent carbon</p>
+              <p className="text-xs text-zinc-500 mt-1.5">Based on estimated hourly load and the configured factor</p>
             </div>
             <div className="p-2.5 rounded-xl bg-orange-500/10">
               {isHighEmission ? <AlertCircle className="w-5 h-5 text-orange-400" /> : <Gauge className="w-5 h-5 text-orange-400" />}
@@ -294,7 +298,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
               <DollarSign className="w-4 h-4 text-accent-400" />
             </div>
             <div>
-              <p className="text-xs text-zinc-500 font-medium">Estimated Household-Equivalent Cost</p>
+              <p className="text-xs text-zinc-500 font-medium">Meter-to-Date Household-Equivalent Cost</p>
               <p className="text-xl font-bold text-white mt-0.5">
                 {formatEstimatedCostInr(toHouseholdEquivalent(iotReading?.energy || 0) * ESTIMATED_TARIFF_INR_PER_KWH)}
               </p>
@@ -341,7 +345,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
         {/* Carbon Intensity Over 24h */}
         <div className="glass-card p-6">
           <h2 className="text-sm font-semibold text-white mb-1">Grid Carbon Intensity</h2>
-          <p className="text-xs text-zinc-500 mb-5">CO₂ intensity per kWh over 24 hours</p>
+          <p className="text-xs text-zinc-500 mb-5">Configured estimate repeated by hour; historical grid observations are unavailable</p>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={hourlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />

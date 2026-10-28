@@ -182,15 +182,11 @@ export default function Login({ onLoginSuccess, initialMode = 'login' }: LoginPr
             </p>
           </div>
 
-          {/* Test credentials */}
-          <div className="mt-6 pt-6 border-t border-slate-800">
-            <p className="text-slate-500 text-xs text-center mb-2">Demo Credentials:</p>
-            <div className="bg-slate-800 bg-opacity-50 rounded p-3 text-slate-400 text-xs space-y-2">
-              <p><span className="text-emerald-400 font-medium">User 1:</span> user1@example.com / demo123</p>
-              <p><span className="text-emerald-400 font-medium">User 2:</span> user2@example.com / demo123</p>
-              <p><span className="text-emerald-400 font-medium">Admin:</span> admin@example.com / admin123</p>
-            </div>
-          </div>
+          {isLogin && (
+            <p className="mt-6 border-t border-slate-800 pt-6 text-center text-xs text-slate-500">
+              No demo accounts are preconfigured. Use Sign Up to create an account.
+            </p>
+          )}
         </div>
       </div>
 

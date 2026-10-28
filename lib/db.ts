@@ -10,6 +10,19 @@ export interface DbUser {
   createdAt: string;
 }
 
+interface IoTEnergyReadingInput {
+  id: string;
+  deviceId: string;
+  voltage: number;
+  current: number;
+  power: number;
+  energy: number;
+  frequency: number;
+  powerFactor: number;
+  timestamp: string;
+  receivedAt: string;
+}
+
 // User operations
 export async function findUserById(userId: string) {
   const res = await query('SELECT * FROM users WHERE id = $1', [userId]);
@@ -134,26 +147,26 @@ export async function getAllBlockchainTransactions() {
 }
 
 // IoT energy readings operations
-export async function addIoTEnergyReading(r: any) {
+export async function addIoTEnergyReading(r: IoTEnergyReadingInput) {
   // Ensure device exists
   await query(
     'INSERT INTO devices (device_id, name, status) VALUES ($1, $2, $3) ON CONFLICT (device_id) DO UPDATE SET status = $3, updated_at = NOW()',
-    [r.deviceId || 'ESP32-001', 'Primary PZEM Monitor', 'online']
+    [r.deviceId, 'Primary PZEM Monitor', 'online']
   );
 
   await query(
-    'INSERT INTO energy_readings (id, device_id, voltage, current, power, energy, frequency, power_factor, timestamp, received_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+    'INSERT INTO energy_readings (id, device_id, voltage, current, power, energy, frequency, power_factor, timestamp, received_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING',
     [
       r.id,
-      r.deviceId || 'ESP32-001',
+      r.deviceId,
       r.voltage,
       r.current,
       r.power,
       r.energy,
       r.frequency,
-      r.powerFactor || r.power_factor || 1,
+      r.powerFactor,
       r.timestamp,
-      r.receivedAt || r.timestamp,
+      r.receivedAt,
     ]
   );
   return r;

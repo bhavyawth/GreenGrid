@@ -123,3 +123,6 @@ artifacts/
 # Hardhat
 hardhat/cache/
 hardhat/artifacts/
+
+formats-review
+formats-review.zip

@@ -35,6 +35,12 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Login error:', error);
+    if (error instanceof Error && error.message.startsWith('JWT_SECRET')) {
+      return NextResponse.json(
+        { error: 'Authentication is unavailable because the server secret is not configured.' },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: 'Login failed' }, { status: 500 });
   }
 }

@@ -5,8 +5,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Zap, TrendingUp, AlertTriangle, Clock, Leaf, Activity, Globe } from 'lucide-react';
 import { Forecast } from '../types/index';
 import { getColorForCarbonIntensity, formatTime } from '../utils/formatters';
-import { getIoTReadings, getIoTStatus, getLatestReading, IoTEnergyReading, IoTStatus } from '../lib/api';
+import { getCarbonIntensity, getIoTReadings, getIoTStatus, getLatestReading, IoTEnergyReading, IoTStatus } from '../lib/api';
 import { toHouseholdEquivalent, HOUSEHOLD_LOAD_SCALE_FACTOR } from '../lib/household-equivalent';
+import { useAuth } from './AuthContext';
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -37,6 +38,7 @@ const CustomTooltipPower = ({ active, payload, label }: any) => {
 };
 
 export const AIForecasting: React.FC = () => {
+  const { token } = useAuth();
   const [forecast, setForecast] = useState<Forecast[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
@@ -47,13 +49,18 @@ export const AIForecasting: React.FC = () => {
   const [iotReadings, setIotReadings] = useState<IoTEnergyReading[]>([]);
   const [iotStatus, setIotStatus] = useState<IoTStatus | null>(null);
   const [iotLoading, setIotLoading] = useState<boolean>(true);
+  const [configuredGridIntensity, setConfiguredGridIntensity] = useState(260);
 
   const fetchIoTData = async () => {
     try {
-      const [latest, readings, status] = await Promise.all([
-        getLatestReading(),
-        getIoTReadings(50),
-        getIoTStatus()
+      const [latest, readings, status, gridIntensity] = await Promise.all([
+        getLatestReading(token || ''),
+        getIoTReadings(token || '', 50),
+        getIoTStatus(token || ''),
+        getCarbonIntensity().catch((error) => {
+          console.error('Unable to load configured carbon factor:', error);
+          return null;
+        })
       ]);
 
       if (latest.success) {
@@ -63,6 +70,7 @@ export const AIForecasting: React.FC = () => {
         setIotReadings(readings.readings);
       }
       setIotStatus(status);
+      if (gridIntensity) setConfiguredGridIntensity(gridIntensity.intensity);
     } catch (error) {
       console.error('Error fetching live device data:', error);
     } finally {
@@ -71,13 +79,22 @@ export const AIForecasting: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!token) {
+      setIotLoading(false);
+      return;
+    }
     fetchIoTData();
-    const interval = window.setInterval(fetchIoTData, 1000);
+    const interval = window.setInterval(fetchIoTData, 5000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     async function loadForecast() {
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setError('');
@@ -93,11 +110,14 @@ export const AIForecasting: React.FC = () => {
         }
 
         // 2. Fetch the forecast
-        const forecastRes = await fetch('/api/ai/forecast');
+        const forecastRes = await fetch('/api/ai/forecast', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!forecastRes.ok) {
           const data = await forecastRes.json();
           if (data.insufficientData) {
             setInsufficientData(true);
+            setError(data.error || 'Validated hourly grid-carbon observations are unavailable.');
             setForecast([]);
             return;
           }
@@ -116,11 +136,11 @@ export const AIForecasting: React.FC = () => {
     }
 
     loadForecast();
-  }, []);
+  }, [token]);
 
   const currentHour = new Date().getHours();
   const currentGridIntensityObj = forecast.find(f => f.hour === currentHour) || forecast[0];
-  const currentGridIntensity = currentGridIntensityObj?.carbonIntensity || 260;
+  const currentGridIntensity = currentGridIntensityObj?.carbonIntensity ?? configuredGridIntensity;
 
   const power = toHouseholdEquivalent(iotReading?.power || 0);
   const energy = toHouseholdEquivalent(iotReading?.energy || 0);
@@ -128,8 +148,8 @@ export const AIForecasting: React.FC = () => {
 
   const averageIntensity = forecast.length
     ? (forecast.reduce((sum, f) => sum + f.carbonIntensity, 0) / forecast.length)
-    : 260;
-  const carbonTodayGrams = energy * averageIntensity;
+    : configuredGridIntensity;
+  const cumulativeCarbonGrams = energy * averageIntensity;
 
   const sensorOnline = Boolean(iotStatus?.online);
 
@@ -152,11 +172,11 @@ export const AIForecasting: React.FC = () => {
         <div className="relative z-10">
           <div className="flex items-center gap-2 mb-1">
             <Zap className="w-5 h-5 text-accent-400" />
-            <span className="text-xs font-semibold text-accent-400 uppercase tracking-wider">ML-Powered</span>
+            <span className="text-xs font-semibold text-accent-400 uppercase tracking-wider">Experimental</span>
           </div>
           <h1 className="text-2xl font-bold text-white">AI Carbon Forecasting</h1>
           <p className="text-sm text-zinc-400 mt-1">
-            ML-driven predictions and {HOUSEHOLD_LOAD_SCALE_FACTOR}× household-equivalent device estimates
+            Grid forecasting needs verified hourly grid data. Device impact is a {HOUSEHOLD_LOAD_SCALE_FACTOR}× household-equivalent estimate.
           </p>
         </div>
       </div>
@@ -165,7 +185,7 @@ export const AIForecasting: React.FC = () => {
       {loading && (
         <div className="bg-zinc-800/40 border border-zinc-700/50 rounded-xl p-4 flex items-center gap-3 text-sm text-zinc-300">
           <Clock className="w-5 h-5 animate-spin text-zinc-400" />
-          <p>Querying Carbon AI Service (Bi-LSTM + LS-SVM models)...</p>
+          <p>Checking the AI service and configured grid-data source...</p>
         </div>
       )}
 
@@ -179,7 +199,7 @@ export const AIForecasting: React.FC = () => {
       {!loading && isAiOnline && insufficientData && (
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-center gap-3 text-sm text-amber-400">
           <Clock className="w-5 h-5 flex-shrink-0" />
-          <p>Insufficient real PZEM telemetry stored to fit LSSVM. Needs at least 8 readings. Please keep the sensor online to collect history.</p>
+          <p>{error}</p>
         </div>
       )}
 
@@ -196,7 +216,7 @@ export const AIForecasting: React.FC = () => {
           <div className="flex items-start justify-between relative z-10">
             <div>
               <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Green Windows Today</p>
-              <p className="text-3xl font-bold text-white mt-2 tabular-nums">{greenWindows.length} <span className="text-lg text-zinc-500">hours</span></p>
+              <p className="text-3xl font-bold text-white mt-2 tabular-nums">{forecast.length ? greenWindows.length : '—'} <span className="text-lg text-zinc-500">hours</span></p>
               <p className="text-xs text-zinc-500 mt-1.5">Optimal times to run appliances</p>
             </div>
             <div className="p-2.5 rounded-xl bg-emerald-500/10">
@@ -224,7 +244,7 @@ export const AIForecasting: React.FC = () => {
           <div className="flex items-start justify-between relative z-10">
             <div>
               <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Peak Carbon Hours</p>
-              <p className="text-3xl font-bold text-white mt-2 tabular-nums">{forecast.length ? 24 - greenWindows.length : '0'} <span className="text-lg text-zinc-500">hours</span></p>
+              <p className="text-3xl font-bold text-white mt-2 tabular-nums">              {forecast.length ? 24 - greenWindows.length : '—'} <span className="text-lg text-zinc-500">hours</span></p>
               <p className="text-xs text-zinc-500 mt-1.5">High-intensity periods</p>
             </div>
             <div className="p-2.5 rounded-xl bg-amber-500/10">
@@ -238,7 +258,7 @@ export const AIForecasting: React.FC = () => {
       <div className="glass-card p-6">
         <h2 className="text-sm font-bold text-white mb-1 uppercase tracking-wider">AI CARBON INTENSITY FORECAST</h2>
         <p className="text-xs text-zinc-500 mb-5">
-          AI forecast of grid carbon intensity. Device impact below is a household-equivalent estimate ({HOUSEHOLD_LOAD_SCALE_FACTOR}× the bulb reading); raw PZEM data remains unchanged.
+          Forecast target: grid carbon intensity, not household demand. A genuine forecast needs timestamped hourly grid observations; no external provider is configured.
         </p>
         {forecast.length === 0 ? (
           <div className="h-[380px] flex flex-col items-center justify-center border border-dashed border-white/[0.08] rounded-xl gap-2">
@@ -312,7 +332,7 @@ export const AIForecasting: React.FC = () => {
           </div>
           
           <p className="text-xs text-zinc-500 mb-6">
-            Household-equivalent load ({HOUSEHOLD_LOAD_SCALE_FACTOR}× bulb reading). Carbon is an estimate; raw PZEM telemetry is unchanged.
+            Household-equivalent load ({HOUSEHOLD_LOAD_SCALE_FACTOR}× bulb reading). Carbon uses a configured estimate ({configuredGridIntensity} gCO₂e/kWh), not a live grid provider.
           </p>
 
           <div className="grid grid-cols-2 gap-4">
@@ -339,7 +359,7 @@ export const AIForecasting: React.FC = () => {
 
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-blue-400" /> Household-Equivalent Energy
+                <TrendingUp className="w-3.5 h-3.5 text-blue-400" /> Cumulative Meter Energy (Equivalent)
               </p>
               <p className="mt-2 text-2xl font-bold tabular-nums text-white">
                 {iotReading ? energy.toFixed(4) : '0.0000'} <span className="text-sm font-normal text-zinc-500">kWh</span>
@@ -351,10 +371,10 @@ export const AIForecasting: React.FC = () => {
 
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-indigo-400" /> Carbon Today
+                <Globe className="w-3.5 h-3.5 text-indigo-400" /> Cumulative Carbon Estimate
               </p>
               <p className="mt-2 text-2xl font-bold tabular-nums text-indigo-400">
-                {iotReading ? (carbonTodayGrams < 1000 ? `${carbonTodayGrams.toFixed(2)} g` : `${(carbonTodayGrams / 1000).toFixed(3)} kg`) : '0.00 g'} <span className="text-sm font-normal text-zinc-500">CO₂</span>
+                {iotReading ? (cumulativeCarbonGrams < 1000 ? `${cumulativeCarbonGrams.toFixed(2)} g` : `${(cumulativeCarbonGrams / 1000).toFixed(3)} kg`) : '0.00 g'} <span className="text-sm font-normal text-zinc-500">CO₂e</span>
               </p>
             </div>
           </div>
@@ -417,7 +437,7 @@ export const AIForecasting: React.FC = () => {
               </div>
             ))}
             {heavyLoadRecommendations.length === 0 && (
-              <p className="text-sm text-zinc-500">No ideal heavy load hours in forecast</p>
+              <p className="text-sm text-zinc-500">{forecast.length ? 'No ideal heavy load hours in forecast' : 'No forecast available; grid data is not configured'}</p>
             )}
           </div>
         </div>
@@ -453,17 +473,16 @@ export const AIForecasting: React.FC = () => {
         </div>
       </div>
 
-      {/* ML Insights */}
-      <div className="glass-card p-6 border-accent-500/10">
+      {/* Forecast insights */}
+      {forecast.length > 0 && <div className="glass-card p-6 border-accent-500/10">
         <div className="flex items-center gap-2 mb-3">
           <Zap className="w-4 h-4 text-accent-400" />
           <h3 className="text-sm font-semibold text-white">AI Insights</h3>
         </div>
         <ul className="space-y-2.5">
           {[
-            `Best time for dishwasher/washing machine: ${heavyLoadRecommendations[0]?.hour || '1'}:00 – 4:00 (lowest emissions)`,
-            'Avoid heavy loads between 17:00 – 21:00 (peak grid demand)',
-            'Potential daily savings: ~2.5 kg CO₂ with optimized scheduling'
+            `Lowest predicted intensity: ${forecast.reduce((best, item) => item.carbonIntensity < best.carbonIntensity ? item : best, forecast[0]).hour}:00`,
+            'Recommendations are based on the experimental grid-intensity forecast, not predicted household consumption.'
           ].map((insight, i) => (
             <li key={i} className="flex items-start gap-3 text-sm text-zinc-400">
               <div className="w-1.5 h-1.5 rounded-full bg-accent-500 mt-1.5 flex-shrink-0" />
@@ -471,7 +490,7 @@ export const AIForecasting: React.FC = () => {
             </li>
           ))}
         </ul>
-      </div>
+      </div>}
     </div>
   );
 };
