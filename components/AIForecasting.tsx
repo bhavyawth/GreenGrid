@@ -6,6 +6,7 @@ import { Zap, TrendingUp, AlertTriangle, Clock, Leaf, Activity, Globe } from 'lu
 import { Forecast } from '../types/index';
 import { getColorForCarbonIntensity, formatTime } from '../utils/formatters';
 import { getIoTReadings, getIoTStatus, getLatestReading, IoTEnergyReading, IoTStatus } from '../lib/api';
+import { toHouseholdEquivalent, HOUSEHOLD_LOAD_SCALE_FACTOR } from '../lib/household-equivalent';
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -121,8 +122,8 @@ export const AIForecasting: React.FC = () => {
   const currentGridIntensityObj = forecast.find(f => f.hour === currentHour) || forecast[0];
   const currentGridIntensity = currentGridIntensityObj?.carbonIntensity || 260;
 
-  const power = iotReading?.power || 0;
-  const energy = iotReading?.energy || 0;
+  const power = toHouseholdEquivalent(iotReading?.power || 0);
+  const energy = toHouseholdEquivalent(iotReading?.energy || 0);
   const carbonEmissionRate = (power / 1000) * currentGridIntensity; // g CO2 / hour
 
   const averageIntensity = forecast.length
@@ -138,7 +139,7 @@ export const AIForecasting: React.FC = () => {
       minute: '2-digit',
       second: '2-digit'
     }),
-    power: reading.power
+    power: toHouseholdEquivalent(reading.power)
   }));
 
   const greenWindows = forecast.filter(f => f.isGreenWindow);
@@ -154,7 +155,9 @@ export const AIForecasting: React.FC = () => {
             <span className="text-xs font-semibold text-accent-400 uppercase tracking-wider">ML-Powered</span>
           </div>
           <h1 className="text-2xl font-bold text-white">AI Carbon Forecasting</h1>
-          <p className="text-sm text-zinc-400 mt-1">ML-driven predictions for optimal energy usage windows</p>
+          <p className="text-sm text-zinc-400 mt-1">
+            ML-driven predictions and {HOUSEHOLD_LOAD_SCALE_FACTOR}× household-equivalent device estimates
+          </p>
         </div>
       </div>
 
@@ -235,7 +238,7 @@ export const AIForecasting: React.FC = () => {
       <div className="glass-card p-6">
         <h2 className="text-sm font-bold text-white mb-1 uppercase tracking-wider">AI CARBON INTENSITY FORECAST</h2>
         <p className="text-xs text-zinc-500 mb-5">
-          AI forecast of grid carbon intensity. Device impact below is calculated from live PZEM measurements.
+          AI forecast of grid carbon intensity. Device impact below is a household-equivalent estimate ({HOUSEHOLD_LOAD_SCALE_FACTOR}× the bulb reading); raw PZEM data remains unchanged.
         </p>
         {forecast.length === 0 ? (
           <div className="h-[380px] flex flex-col items-center justify-center border border-dashed border-white/[0.08] rounded-xl gap-2">
@@ -309,16 +312,19 @@ export const AIForecasting: React.FC = () => {
           </div>
           
           <p className="text-xs text-zinc-500 mb-6">
-            Real-time carbon emissions and footprint calculations based on physical PZEM-connected load.
+            Household-equivalent load ({HOUSEHOLD_LOAD_SCALE_FACTOR}× bulb reading). Carbon is an estimate; raw PZEM telemetry is unchanged.
           </p>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-amber-400" /> Current Power
+                <Zap className="w-3.5 h-3.5 text-amber-400" /> Household-Equivalent Power
               </p>
               <p className="mt-2 text-2xl font-bold tabular-nums text-white">
-                {iotReading ? iotReading.power.toFixed(1) : '0.0'} <span className="text-sm font-normal text-zinc-500">W</span>
+                {iotReading ? power.toFixed(1) : '0.0'} <span className="text-sm font-normal text-zinc-500">W</span>
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Raw bulb reading: {iotReading ? `${iotReading.power.toFixed(1)} W` : '0.0 W'}
               </p>
             </div>
 
@@ -333,10 +339,13 @@ export const AIForecasting: React.FC = () => {
 
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-blue-400" /> Energy Today
+                <TrendingUp className="w-3.5 h-3.5 text-blue-400" /> Household-Equivalent Energy
               </p>
               <p className="mt-2 text-2xl font-bold tabular-nums text-white">
-                {iotReading ? iotReading.energy.toFixed(4) : '0.0000'} <span className="text-sm font-normal text-zinc-500">kWh</span>
+                {iotReading ? energy.toFixed(4) : '0.0000'} <span className="text-sm font-normal text-zinc-500">kWh</span>
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Raw sensor: {iotReading ? `${iotReading.energy.toFixed(4)} kWh` : '0.0000 kWh'}
               </p>
             </div>
 
@@ -361,10 +370,10 @@ export const AIForecasting: React.FC = () => {
         {/* Real Device Power Live Chart */}
         <div className="glass-card p-6">
           <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-1 flex items-center gap-1.5">
-            <Activity className="w-4 h-4 text-emerald-400" /> Real Device Power — Live
+            <Activity className="w-4 h-4 text-emerald-400" /> Household-Equivalent Power — Live
           </h3>
           <p className="text-xs text-zinc-500 mb-5">
-            Actual PZEM power readings over time. Turn the physical load ON/OFF to see changes.
+            Estimated equivalent power ({HOUSEHOLD_LOAD_SCALE_FACTOR}× the bulb reading); raw PZEM readings remain stored unchanged.
           </p>
 
           <div className="h-[220px]">

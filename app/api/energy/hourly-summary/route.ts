@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/pg';
 import { verifyToken } from '@/lib/auth';
+import { toHouseholdEquivalent, HOUSEHOLD_LOAD_SCALE_FACTOR } from '@/lib/household-equivalent';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/energy/hourly-summary
- * Returns actual aggregated energy consumption and emission data for the last 24 hours from PostgreSQL.
+ * Returns estimated household-equivalent consumption and emissions from raw readings in the last 24 hours.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -35,17 +36,22 @@ export async function GET(request: NextRequest) {
       const date = new Date(row.hour_bucket);
       const hourStr = `${date.getHours().toString().padStart(2, '0')}:00`;
       
-      // Calculate consumption: average power (W) / 1000 = consumption (kWh) for a 1-hour block
-      const consumption = Number((Number(row.avg_power || 0) / 1000).toFixed(4));
-      
-      // Calculate emission: consumption (kWh) * intensity (g/kWh) / 1000 = emissions (kg CO2)
+      const rawPower = Number(row.avg_power || 0);
+      const rawConsumption = rawPower / 1000;
+      const consumption = Number(toHouseholdEquivalent(rawConsumption).toFixed(4));
+      const estimatedPower = toHouseholdEquivalent(rawPower);
+
+      // These household-equivalent values are estimates derived from the bulb's raw readings.
       const emission = Number(((consumption * intensity) / 1000).toFixed(6));
 
       return {
         time: hourStr,
         consumption,
+        rawConsumption: Number(rawConsumption.toFixed(4)),
+        averagePower: Number(estimatedPower.toFixed(2)),
         carbonIntensity: intensity,
         emission,
+        scaleFactor: HOUSEHOLD_LOAD_SCALE_FACTOR,
         voltage: Number(row.avg_voltage || 0),
         current: Number(row.avg_current || 0)
       };

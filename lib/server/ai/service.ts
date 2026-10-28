@@ -3,6 +3,7 @@
  */
 import { getIoTEnergyReadings, getLatestIoTEnergyReading, addAiPrediction } from '@/lib/db';
 import { aiClient, HealthStatus, EmissionPredictResponse, ForecastPoint } from './client';
+import { toHouseholdEquivalent, HOUSEHOLD_LOAD_SCALE_FACTOR } from '@/lib/household-equivalent';
 
 // Helper to calculate a deterministic grid carbon intensity based on timestamp
 // to simulate real-world grid mix (e.g. higher in peak hours 17-21, lower otherwise)
@@ -35,17 +36,15 @@ export const aiService = {
     return aiClient.getHealth();
   },
 
-  async estimateCurrentEmission(): Promise<{ success: boolean; data?: EmissionPredictResponse; error?: string; insufficientData?: boolean }> {
+  async estimateCurrentEmission(): Promise<{ success: boolean; data?: EmissionPredictResponse; error?: string; insufficientData?: boolean; scaleFactor?: number }> {
     try {
       const latest = await getLatestIoTEnergyReading();
       if (!latest) {
         return { success: false, insufficientData: true };
       }
 
-      // Convert power from Watts (PZEM) to kW (AI Model expects kW)
-      const powerKw = latest.power / 1000;
-      // energy is already cumulative kWh from PZEM
-      const energyKwh = latest.energy;
+      const powerKw = toHouseholdEquivalent(latest.power) / 1000;
+      const energyKwh = toHouseholdEquivalent(latest.energy);
       const gridIntensity = getDeterministicGridIntensity(latest.timestamp.toISOString());
 
       const prediction = await aiClient.predictEmission({
@@ -58,6 +57,7 @@ export const aiService = {
       return {
         success: true,
         data: prediction,
+        scaleFactor: HOUSEHOLD_LOAD_SCALE_FACTOR,
       };
     } catch (e: any) {
       console.error('[AI Service] Emission estimation failed:', e.message);

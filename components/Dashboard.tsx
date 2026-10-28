@@ -4,8 +4,20 @@ import React, { useEffect, useState } from 'react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Activity, TrendingUp, AlertCircle, Gauge, DollarSign, Cpu, Wifi, WifiOff } from 'lucide-react';
 import { EnergyReading, CarbonEmission } from '../types/index';
-import { formatCurrency, formatKilograms, formatTime, getColorForCarbonIntensity } from '../utils/formatters';
+import { formatKilograms, formatTime, getColorForCarbonIntensity } from '../utils/formatters';
 import { getIoTReadings, getIoTStatus, getLatestReading, getHourlySummary, IoTEnergyReading, IoTStatus } from '../lib/api';
+import { toHouseholdEquivalent, HOUSEHOLD_LOAD_SCALE_FACTOR } from '../lib/household-equivalent';
+
+const ESTIMATED_TARIFF_INR_PER_KWH = 8;
+
+function formatEstimatedCostInr(value: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
 
 interface DashboardProps {
   userId: string;
@@ -79,7 +91,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
       minute: '2-digit',
       second: '2-digit'
     }),
-    power: reading.power,
+    power: toHouseholdEquivalent(reading.power),
     voltage: reading.voltage,
     current: reading.current
   }));
@@ -94,7 +106,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
             <span className="text-xs font-semibold text-accent-400 uppercase tracking-wider">Real-time Monitoring</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Energy Dashboard</h1>
-          <p className="text-sm text-zinc-400 mt-1">Real-time electricity monitoring & carbon emissions tracking</p>
+          <p className="text-sm text-zinc-400 mt-1">
+            Household-equivalent demo ({HOUSEHOLD_LOAD_SCALE_FACTOR}× estimate); raw ESP32 readings remain unchanged.
+          </p>
         </div>
       </div>
 
@@ -148,8 +162,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
               {[
                 { label: 'Voltage', value: iotReading.voltage.toFixed(1), unit: 'V' },
                 { label: 'Current', value: iotReading.current.toFixed(2), unit: 'A' },
-                { label: 'Power', value: iotReading.power.toFixed(1), unit: 'W' },
-                { label: 'Energy', value: iotReading.energy.toFixed(2), unit: 'kWh' },
+                { label: 'Household-Equivalent Power', value: toHouseholdEquivalent(iotReading.power).toFixed(0), unit: 'W', raw: `ESP32 sensor: ${iotReading.power.toFixed(1)} W` },
+                { label: 'Household-Equivalent Energy', value: toHouseholdEquivalent(iotReading.energy).toFixed(2), unit: 'kWh', raw: `ESP32 sensor: ${iotReading.energy.toFixed(4)} kWh` },
                 { label: 'Frequency', value: iotReading.frequency.toFixed(1), unit: 'Hz' },
                 { label: 'Power Factor', value: iotReading.powerFactor.toFixed(2), unit: '' }
               ].map((metric) => (
@@ -158,6 +172,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
                   <p className="mt-2 text-2xl font-bold tabular-nums text-white">
                     {metric.value} <span className="text-sm text-zinc-500">{metric.unit}</span>
                   </p>
+                  {'raw' in metric && <p className="mt-1 text-xs text-zinc-500">{metric.raw}</p>}
                 </div>
               ))}
             </div>
@@ -165,7 +180,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
               <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-5">
                 <h3 className="text-sm font-semibold text-white mb-1">Live Power Consumption</h3>
-                <p className="text-xs text-zinc-500 mb-4">Power (W) from stored ESP32 readings</p>
+                <p className="text-xs text-zinc-500 mb-4">Estimated household-equivalent power ({HOUSEHOLD_LOAD_SCALE_FACTOR}× the bulb reading)</p>
                 <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={iotChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
@@ -226,8 +241,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
           <div className="flex items-start justify-between relative z-10">
             <div>
               <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Energy Today</p>
-              <p className="text-3xl font-bold text-white mt-2 tabular-nums">{iotReading ? iotReading.energy.toFixed(4) : '0.0000'} <span className="text-lg text-zinc-500">kWh</span></p>
-              <p className="text-xs text-zinc-500 mt-1.5">Real-time cumulative energy</p>
+              <p className="text-3xl font-bold text-white mt-2 tabular-nums">{iotReading ? toHouseholdEquivalent(iotReading.energy).toFixed(4) : '0.0000'} <span className="text-lg text-zinc-500">kWh</span></p>
+              <p className="text-xs text-zinc-500 mt-1.5">
+                Household-equivalent estimate ({HOUSEHOLD_LOAD_SCALE_FACTOR}×); raw sensor: {iotReading ? `${iotReading.energy.toFixed(4)} kWh` : '0.0000 kWh'}
+              </p>
             </div>
             <div className="p-2.5 rounded-xl bg-blue-500/10">
               <Activity className="w-5 h-5 text-blue-400" />
@@ -258,9 +275,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
             <div>
               <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Carbon Today</p>
               <p className="text-3xl font-bold text-white mt-2 tabular-nums">
-                {formatKilograms(((iotReading?.energy || 0) * intensity) / 1000)}
+                {formatKilograms((toHouseholdEquivalent(iotReading?.energy || 0) * intensity) / 1000)}
               </p>
-              <p className="text-xs text-zinc-500 mt-1.5">Calculated carbon footprint</p>
+              <p className="text-xs text-zinc-500 mt-1.5">Estimated household-equivalent carbon</p>
             </div>
             <div className="p-2.5 rounded-xl bg-orange-500/10">
               {isHighEmission ? <AlertCircle className="w-5 h-5 text-orange-400" /> : <Gauge className="w-5 h-5 text-orange-400" />}
@@ -277,8 +294,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
               <DollarSign className="w-4 h-4 text-accent-400" />
             </div>
             <div>
-              <p className="text-xs text-zinc-500 font-medium">Estimated Cost Today</p>
-              <p className="text-xl font-bold text-white mt-0.5">{formatCurrency((iotReading?.energy || 0) * 12)}</p>
+              <p className="text-xs text-zinc-500 font-medium">Estimated Household-Equivalent Cost</p>
+              <p className="text-xl font-bold text-white mt-0.5">
+                {formatEstimatedCostInr(toHouseholdEquivalent(iotReading?.energy || 0) * ESTIMATED_TARIFF_INR_PER_KWH)}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Assumes ₹{ESTIMATED_TARIFF_INR_PER_KWH}/kWh; actual tariffs vary
+              </p>
             </div>
           </div>
           <div className="text-right">
@@ -296,7 +318,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
         {/* Energy Consumption Over 24h */}
         <div className="glass-card p-6">
           <h2 className="text-sm font-semibold text-white mb-1">24-Hour Consumption Pattern</h2>
-          <p className="text-xs text-zinc-500 mb-5">Energy usage over the last 24 hours</p>
+          <p className="text-xs text-zinc-500 mb-5">Estimated household-equivalent energy over the last 24 hours ({HOUSEHOLD_LOAD_SCALE_FACTOR}×)</p>
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={hourlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
@@ -337,10 +359,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
         <h2 className="text-sm font-semibold text-white mb-4">Daily Summary</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-stagger">
           {[
-            { label: 'Total Consumption', value: `${(hourlyData.reduce((sum, item) => sum + item.consumption, 0)).toFixed(2)} kWh` },
-            { label: 'Total Emissions', value: formatKilograms(totalDayEmission) },
+            { label: 'Household-Equivalent Consumption', value: `${(hourlyData.reduce((sum, item) => sum + item.consumption, 0)).toFixed(2)} kWh (est.)` },
+            { label: 'Estimated Household-Equivalent Emissions', value: formatKilograms(totalDayEmission) },
             { label: 'Avg. Intensity', value: `${(hourlyData.length ? (hourlyData.reduce((sum, item) => sum + item.carbonIntensity, 0) / hourlyData.length).toFixed(0) : 0)} g/kWh` },
-            { label: 'Estimated Cost', value: formatCurrency(hourlyData.reduce((sum, item) => sum + item.consumption * 12, 0)) },
+            { label: 'Estimated Household-Equivalent Cost', value: formatEstimatedCostInr(hourlyData.reduce((sum, item) => sum + item.consumption * ESTIMATED_TARIFF_INR_PER_KWH, 0)) },
           ].map(({ label, value }) => (
             <div key={label} className="text-center p-4 rounded-xl bg-white/[0.03] border border-white/[0.04]">
               <p className="text-xs text-zinc-500 font-medium">{label}</p>
