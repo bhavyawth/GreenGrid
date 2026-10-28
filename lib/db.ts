@@ -1,5 +1,67 @@
 import crypto from 'crypto';
+import CryptoJS from 'crypto-js';
 import { query } from './pg';
+
+const demoStore = globalThis as typeof globalThis & {
+  greengridDemoUsers?: any[];
+  greengridDemoReadings?: any[];
+  greengridDemoTransactions?: any[];
+  greengridDemoCredits?: Record<string, { userId: string; available: number; verified: number; retired: number }>;
+  greengridDemoCertificates?: any[];
+};
+
+const demoUsers = () => {
+  if (!demoStore.greengridDemoUsers) {
+    demoStore.greengridDemoUsers = [
+      {
+        id: 'demo-user-1',
+        email: 'user1@example.com',
+        password: '$2b$10$7EqJtq98hPqEX7fNZaFWoO8Y7QWwJ8t9w1g7X5Q4QJQJQJQJQJQJQ',
+        name: 'Demo User',
+        role: 'user',
+        totalEnergyUsed: 0,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'demo-admin-1',
+        email: 'admin@example.com',
+        password: '$2b$10$7EqJtq98hPqEX7fNZaFWoO8Y7QWwJ8t9w1g7X5Q4QJQJQJQJQJQJQ',
+        name: 'Demo Admin',
+        role: 'admin',
+        totalEnergyUsed: 0,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+  }
+  return demoStore.greengridDemoUsers;
+};
+
+const demoHash = (transaction: any) =>
+  CryptoJS.SHA256(JSON.stringify({ ...transaction, hash: undefined })).toString();
+
+const demoTransactions = () => {
+  if (!demoStore.greengridDemoTransactions) {
+    let previousHash = '0';
+    demoStore.greengridDemoTransactions = [1, 2, 3].map((index) => {
+      const transaction: any = {
+        id: `SIM_BLOCK_${index}`,
+        userId: 'demo-user-1',
+        userName: 'Demo User',
+        type: 'EMISSION_RECORDED',
+        amount: Number((1.2 + index * 0.65).toFixed(2)),
+        description: 'Simulated energy reading for local demonstration',
+        timestamp: new Date(Date.now() - (3 - index) * 60000).toISOString(),
+        previousHash,
+        nonce: 0,
+        hash: '',
+      };
+      transaction.hash = demoHash(transaction);
+      previousHash = transaction.hash;
+      return transaction;
+    });
+  }
+  return demoStore.greengridDemoTransactions;
+};
 
 export interface DbUser {
   id: string;
@@ -12,6 +74,7 @@ export interface DbUser {
 
 // User operations
 export async function findUserById(userId: string) {
+  if (!process.env.DB_URI) return demoUsers().find((user) => user.id === userId) || null;
   const res = await query('SELECT * FROM users WHERE id = $1', [userId]);
   if (res.rows.length === 0) return null;
   const u = res.rows[0];
@@ -26,6 +89,7 @@ export async function findUserById(userId: string) {
 }
 
 export async function findUserByEmail(email: string) {
+  if (!process.env.DB_URI) return demoUsers().find((user) => user.email === email) || null;
   const res = await query('SELECT * FROM users WHERE email = $1', [email]);
   if (res.rows.length === 0) return null;
   const u = res.rows[0];
@@ -41,6 +105,10 @@ export async function findUserByEmail(email: string) {
 }
 
 export async function createUser(user: any) {
+  if (!process.env.DB_URI) {
+    demoUsers().push(user);
+    return user;
+  }
   await query(
     'INSERT INTO users (id, email, password, name, role, total_energy_used, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
     [
@@ -86,6 +154,9 @@ export async function updateUser(userId: string, updates: any) {
 
 // readUsers gets all users
 export async function readUsers() {
+  if (!process.env.DB_URI) {
+    return demoUsers().map(({ password, ...user }) => user);
+  }
   const res = await query('SELECT * FROM users ORDER BY created_at DESC');
   return res.rows.map(u => ({
     id: u.id,
@@ -99,6 +170,10 @@ export async function readUsers() {
 
 // Blockchain operations (simulated ledger)
 export async function addBlockchainTransaction(t: any) {
+  if (!process.env.DB_URI) {
+    demoTransactions().push(t);
+    return t;
+  }
   await query(
     'INSERT INTO local_blockchain (id, user_id, user_name, type, amount, description, timestamp, previous_hash, nonce, hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
     [
@@ -118,6 +193,7 @@ export async function addBlockchainTransaction(t: any) {
 }
 
 export async function getAllBlockchainTransactions() {
+  if (!process.env.DB_URI) return demoTransactions();
   const res = await query('SELECT * FROM local_blockchain ORDER BY timestamp ASC');
   return res.rows.map(t => ({
     id: t.id,
@@ -287,6 +363,11 @@ export async function addAiPrediction(pred: {
 }
 
 export async function getUserCredits(userId: string) {
+  if (!process.env.DB_URI) {
+    demoStore.greengridDemoCredits ||= {};
+    demoStore.greengridDemoCredits[userId] ||= { userId, available: 100, verified: 100, retired: 0 };
+    return demoStore.greengridDemoCredits[userId];
+  }
   // Ensure the user has a credits record. If not, initialize with 100 available.
   const checkRes = await query('SELECT * FROM user_credits WHERE user_id = $1', [userId]);
   if (checkRes.rows.length === 0) {
@@ -306,6 +387,13 @@ export async function getUserCredits(userId: string) {
 }
 
 export async function updateUserCredits(userId: string, availableChange: number, verifiedChange: number, retiredChange: number = 0) {
+  if (!process.env.DB_URI) {
+    const credits = await getUserCredits(userId);
+    credits.available += availableChange;
+    credits.verified += verifiedChange;
+    credits.retired += retiredChange;
+    return credits;
+  }
   await getUserCredits(userId); // ensure row exists
   await query(
     `UPDATE user_credits 
@@ -319,7 +407,17 @@ export async function updateUserCredits(userId: string, availableChange: number,
   return getUserCredits(userId);
 }
 
+export async function getMarketWallet(userId: string) {
+  if (!process.env.DB_URI) return { userId, balance: 100000 };
+  const res = await query('SELECT market_balance FROM users WHERE id = $1', [userId]);
+  if (res.rows.length === 0) throw new Error('User not found');
+  return { userId, balance: Number(res.rows[0].market_balance || 0) };
+}
+
 export async function getGreenCertificates(ownerId: string) {
+  if (!process.env.DB_URI) {
+    return (demoStore.greengridDemoCertificates || []).filter((certificate) => certificate.ownerId === ownerId);
+  }
   const res = await query('SELECT * FROM green_certificates WHERE owner_id = $1 ORDER BY date_issued DESC', [ownerId]);
   return res.rows.map(r => ({
     id: r.id,
@@ -329,10 +427,15 @@ export async function getGreenCertificates(ownerId: string) {
     tokenId: r.token_id,
     verified: Boolean(r.verified),
     blockchainTxn: r.blockchain_txn
+    ,baselineEmission: Number(r.baseline_emission || 0)
+    ,actualEmission: Number(r.actual_emission || 0)
   }));
 }
 
 export async function getGreenCertificateById(id: string) {
+  if (!process.env.DB_URI) {
+    return (demoStore.greengridDemoCertificates || []).find((certificate) => certificate.id === id) || null;
+  }
   const res = await query('SELECT * FROM green_certificates WHERE id = $1', [id]);
   if (res.rows.length === 0) return null;
   const r = res.rows[0];
@@ -344,6 +447,8 @@ export async function getGreenCertificateById(id: string) {
     tokenId: r.token_id,
     verified: Boolean(r.verified),
     blockchainTxn: r.blockchain_txn
+    ,baselineEmission: Number(r.baseline_emission || 0)
+    ,actualEmission: Number(r.actual_emission || 0)
   };
 }
 
@@ -355,10 +460,25 @@ export async function addGreenCertificate(cert: {
   tokenId: string;
   verified?: boolean;
   blockchainTxn?: string;
+  baselineEmission?: number;
+  actualEmission?: number;
 }) {
+  if (!process.env.DB_URI) {
+    demoStore.greengridDemoCertificates ||= [];
+    const saved = {
+      ...cert,
+      dateIssued: cert.dateIssued || new Date().toISOString(),
+      verified: cert.verified !== undefined ? cert.verified : true,
+      baselineEmission: cert.baselineEmission || cert.carbonReduced,
+      actualEmission: cert.actualEmission || cert.carbonReduced,
+    };
+    demoStore.greengridDemoCertificates.push(saved);
+    await updateUserCredits(cert.ownerId, Math.round(cert.carbonReduced / 10), Math.round(cert.carbonReduced / 10));
+    return saved;
+  }
   await query(
-    `INSERT INTO green_certificates (id, owner_id, carbon_reduced, date_issued, token_id, verified, blockchain_txn)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    `INSERT INTO green_certificates (id, owner_id, carbon_reduced, date_issued, token_id, verified, blockchain_txn, baseline_emission, actual_emission)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       cert.id,
       cert.ownerId,
@@ -366,7 +486,9 @@ export async function addGreenCertificate(cert: {
       cert.dateIssued ? new Date(cert.dateIssued) : new Date(),
       cert.tokenId,
       cert.verified !== undefined ? cert.verified : true,
-      cert.blockchainTxn || null
+      cert.blockchainTxn || null,
+      cert.baselineEmission || cert.carbonReduced,
+      cert.actualEmission || cert.carbonReduced
     ]
   );
   
@@ -384,6 +506,13 @@ export async function createMarketListing(l: {
   quantity?: number;
   price: number;
 }) {
+  const existing = await query(
+    `SELECT id FROM market_listings WHERE certificate_id = $1 AND status = 'active'`,
+    [l.certificateId]
+  );
+  if (existing.rows.length > 0) {
+    throw new Error('This certificate is already listed on the marketplace');
+  }
   await query(
     `INSERT INTO market_listings (id, seller_id, certificate_id, quantity, price, status)
      VALUES ($1, $2, $3, $4, $5, 'active')`,
@@ -394,7 +523,7 @@ export async function createMarketListing(l: {
 
 export async function getMarketListings() {
   const res = await query(
-    `SELECT l.*, c.carbon_reduced, u.name as seller_name 
+    `SELECT l.*, c.carbon_reduced, c.token_id, u.name as seller_name
      FROM market_listings l
      JOIN green_certificates c ON l.certificate_id = c.id
      JOIN users u ON l.seller_id = u.id
@@ -410,6 +539,7 @@ export async function getMarketListings() {
     price: Number(r.price),
     status: r.status,
     carbonReduced: Number(r.carbon_reduced),
+    tokenId: r.token_id,
     createdAt: r.created_at
   }));
 }
@@ -428,6 +558,30 @@ export async function cancelMarketListing(listingId: string, sellerId: string) {
     [listingId, sellerId]
   );
   return (res.rowCount ?? 0) > 0;
+}
+
+export async function buyBackMarketListing(listingId: string, sellerId: string, currentPrice: number) {
+  await query('BEGIN');
+  try {
+    const listingRes = await query(
+      `SELECT * FROM market_listings WHERE id = $1 AND seller_id = $2 AND status = 'active' FOR UPDATE`,
+      [listingId, sellerId]
+    );
+    if (listingRes.rows.length === 0) throw new Error('Listing is no longer active');
+    const listing = listingRes.rows[0];
+
+    await query(
+      `UPDATE market_listings SET status = 'bought_back', price = $1, updated_at = NOW() WHERE id = $2`,
+      [currentPrice, listingId]
+    );
+
+    await query('UPDATE users SET market_balance = market_balance + $1 WHERE id = $2', [currentPrice, sellerId]);
+    await query('COMMIT');
+    return { success: true, listingId, price: currentPrice, certificateId: listing.certificate_id };
+  } catch (error) {
+    await query('ROLLBACK');
+    throw error;
+  }
 }
 
 export async function executeMarketTrade(listingId: string, buyerId: string) {
@@ -454,6 +608,12 @@ export async function executeMarketTrade(listingId: string, buyerId: string) {
       throw new Error('Seller no longer owns this certificate');
     }
 
+    const walletRes = await query('SELECT market_balance FROM users WHERE id = $1 FOR UPDATE', [buyerId]);
+    const buyerBalance = Number(walletRes.rows[0]?.market_balance || 0);
+    if (buyerBalance < Number(listing.price)) {
+      throw new Error(`Insufficient market balance. You have $${buyerBalance.toFixed(2)}.`);
+    }
+
     // Process trade details
     const tradeId = crypto.randomUUID();
     
@@ -462,6 +622,8 @@ export async function executeMarketTrade(listingId: string, buyerId: string) {
 
     // 2. Mark listing as sold
     await query('UPDATE market_listings SET status = \'sold\', updated_at = NOW() WHERE id = $1', [listingId]);
+    await query('UPDATE users SET market_balance = market_balance - $1 WHERE id = $2', [listing.price, buyerId]);
+    await query('UPDATE users SET market_balance = market_balance + $1 WHERE id = $2', [listing.price, listing.seller_id]);
 
     // 3. Record Trade
     await query(
@@ -508,7 +670,30 @@ export async function getMarketTrades() {
   }));
 }
 
-export async function getBlockchainRecords() {
+export async function getBlockchainRecords(): Promise<Array<{
+  id: string;
+  tokenId: string;
+  transactionHash: string;
+  chainId: number;
+  contractAddress: string;
+  status: string;
+  timestamp: string;
+  carbonRecordId?: string;
+  carbonReduction?: number;
+}>> {
+  if (!process.env.DB_URI) {
+    return demoTransactions().map((transaction, index) => ({
+      id: transaction.id,
+      tokenId: String(index + 1),
+      transactionHash: transaction.hash,
+      chainId: 31337,
+      contractAddress: 'simulated-local-contract',
+      status: 'verified',
+      timestamp: transaction.timestamp,
+      carbonRecordId: transaction.id,
+      carbonReduction: Number((transaction.amount * 10).toFixed(2)),
+    }));
+  }
   const res = await query('SELECT * FROM blockchain_records ORDER BY timestamp DESC');
   return res.rows.map(r => ({
     id: r.id,

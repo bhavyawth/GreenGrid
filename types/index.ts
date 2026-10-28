@@ -42,6 +42,8 @@ export interface GreenCertificate {
   owner: string;
   ownerId?: string;
   carbonReduced: number; // kg CO2
+  baselineEmission?: number;
+  actualEmission?: number;
   dateIssued: Date | string;
   tokenId: string;
   verified: boolean;

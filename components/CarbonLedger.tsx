@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Database, CheckCircle, AlertCircle, Plus, Link, Shield, Loader } from 'lucide-react';
 import { BlockchainTransaction } from '../types/index';
 import { formatDate, formatKilograms } from '../utils/formatters';
+import { NFTViewer } from './NFTViewer';
 
 interface CarbonLedgerProps {
   userId: string;
@@ -19,8 +20,9 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
   const fetchData = async () => {
     try {
@@ -75,6 +77,10 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
       });
 
       if (res.ok) {
+        const data = await res.json();
+        setSuccess(data.certificateIssued
+          ? 'Emission recorded, verified on the local blockchain, and certificate issued automatically.'
+          : 'Emission recorded in the ledger. Blockchain verification is still pending.');
         await fetchData();
       } else {
         setError('Failed to record emission transaction.');
@@ -110,7 +116,7 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
             <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Immutable Ledger</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Carbon Blockchain Ledger</h1>
-          <p className="text-sm text-zinc-400 mt-1">Immutable record of verified emissions and green credits</p>
+          <p className="text-sm text-zinc-400 mt-1">Records actual emissions and certifies the CO₂ avoided versus a 1.5x unoptimized baseline.</p>
         </div>
       </div>
 
@@ -119,6 +125,12 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
         <div className="bg-red-500 bg-opacity-10 border border-red-500 border-opacity-20 rounded-lg p-4 flex items-center gap-3 text-sm text-red-400">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <p>{error}</p>
+        </div>
+      )}
+      {success && (
+        <div className="bg-emerald-500 bg-opacity-10 border border-emerald-500 border-opacity-20 rounded-lg p-4 flex items-center gap-3 text-sm text-emerald-400">
+          <CheckCircle className="w-5 h-5 flex-shrink-0" />
+          <p>{success}</p>
         </div>
       )}
 
@@ -169,7 +181,7 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
         ) : (
           <>
             <Plus className="w-4 h-4" />
-            <span>Record Emission Transaction</span>
+            <span>Record Emission & Issue Certificate</span>
           </>
         )}
       </button>
@@ -348,6 +360,8 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
           </p>
         </div>
       </div>
+
+      <NFTViewer userId={userId} token={token} embedded />
     </div>
   );
 };

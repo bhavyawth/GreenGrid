@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, TrendingDown, Newspaper, BarChart3, ArrowUpRight, ArrowDownRight, Plus, ShoppingCart, Shield, Trash2, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { TrendingUp, TrendingDown, Newspaper, BarChart3, ArrowUpRight, ArrowDownRight, Plus, ShoppingCart, Shield, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { MarketData, NewsEvent, GreenCertificate } from '../types/index';
 import { generateMarketData, generateNewsEvents } from '../services/dataService';
 import { formatCurrency, formatDate } from '../utils/formatters';
@@ -21,6 +21,7 @@ interface ActiveListing {
   price: number;
   status: string;
   carbonReduced: number;
+  tokenId: string;
   createdAt: string;
 }
 
@@ -36,6 +37,13 @@ interface TradeHistory {
   price: number;
   carbonReduced: number;
   timestamp: string;
+}
+
+interface MarketQuote {
+  price: number;
+  power: number;
+  changePercent: number;
+  explanation: string;
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -66,6 +74,8 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
   const [myCertificates, setMyCertificates] = useState<GreenCertificate[]>([]);
   const [selectedCertId, setSelectedCertId] = useState<string>('');
   const [listingPrice, setListingPrice] = useState<string>('');
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [quote, setQuote] = useState<MarketQuote | null>(null);
   
   // UI states
   const [loading, setLoading] = useState(true);
@@ -77,10 +87,12 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
     try {
       const headers = { Authorization: `Bearer ${token}` };
       
-      const [resListings, resTrades, resCerts] = await Promise.all([
+      const [resListings, resTrades, resCerts, resWallet, resQuote] = await Promise.all([
         fetch('/api/market/listings', { headers }),
         fetch('/api/market/history', { headers }),
-        fetch('/api/certificates', { headers })
+        fetch('/api/certificates', { headers }),
+        fetch('/api/market/wallet', { headers }),
+        fetch('/api/market/quote', { headers })
       ]);
 
       if (resListings.ok) {
@@ -91,6 +103,12 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
       }
       if (resCerts.ok) {
         setMyCertificates(await resCerts.json());
+      }
+      if (resWallet.ok) setWalletBalance((await resWallet.json()).balance);
+      if (resQuote.ok) {
+        const nextQuote = await resQuote.json();
+        setQuote(nextQuote);
+        setListingPrice((current) => current || nextQuote.price.toFixed(2));
       }
     } catch (err) {
       console.error('Error loading market data:', err);
@@ -110,6 +128,10 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
       setError('Please select a certificate and enter a valid price.');
       return;
     }
+    const confirmed = window.confirm(
+      `Confirm permanent listing at $${parseFloat(listingPrice).toFixed(2)}?\n\nThis sell order cannot be deleted. You can buy it back later at the live market price.`
+    );
+    if (!confirmed) return;
 
     try {
       setActionLoading(true);
@@ -175,7 +197,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
     }
   };
 
-  const handleCancelListing = async (listingId: string) => {
+  const handleBuyBackListing = async (listingId: string) => {
     try {
       setActionLoading(true);
       setError('');
@@ -184,31 +206,21 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
         Authorization: `Bearer ${token}`
       };
 
-      const res = await fetch(`/api/market/listings`, {
-        method: 'POST', // standard endpoint parses cancel if we map it
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ listingId, cancel: true })
-      });
-
-      // Let's implement a cancel handler. If we can also call an API like /api/market/listings?cancel=true
-      // Let's build a simple cancel route or support it in our API route. We will support it in listings route.
-      const cancelRes = await fetch(`/api/market/buy`, {
+      const cancelRes = await fetch(`/api/market/buyback`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ listingId, cancel: true })
+        body: JSON.stringify({ listingId })
       });
 
       if (cancelRes.ok) {
-        setSuccess('Listing cancelled successfully.');
+        const data = await cancelRes.json();
+        setSuccess(`Listing bought back at ${formatCurrency(data.price)}. Your certificate is back in your account.`);
         await fetchMarketData();
       } else {
-        setError('Failed to cancel listing.');
+        setError('Listing may have already been closed or removed. Please refresh and try again.');
       }
     } catch (err) {
       setError('Connection error while cancelling listing.');
@@ -251,7 +263,9 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
             <span className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Market Intelligence</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Carbon Credit Market</h1>
-          <p className="text-sm text-zinc-400 mt-1">Real-time carbon credit pricing & market intelligence</p>
+          <p className="text-sm text-zinc-400 mt-1">Electricity usage drives the index. Verified certificates can be sold for profit.</p>
+          <p className="text-xs text-zinc-500 mt-2">Your market wallet: {formatCurrency(walletBalance)} · Current simulated usage: {(quote?.power || 1000).toFixed(0)} W</p>
+          <p className="text-xs text-zinc-500 mt-2">Only verified certificates issued in Blockchain Ledger can be listed or bought here.</p>
         </div>
       </div>
 
@@ -274,11 +288,11 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
         <div className="metric-card accent-purple">
           <div className="relative z-10">
             <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Current Price Index</p>
-            <p className="text-3xl font-bold text-white mt-2 tabular-nums">{formatCurrency(currentPrice)}</p>
+            <p className="text-3xl font-bold text-white mt-2 tabular-nums">{formatCurrency(quote?.price || currentPrice)}</p>
             <div className="flex items-center gap-1.5 mt-1.5">
               {isUp ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" /> : <ArrowDownRight className="w-3.5 h-3.5 text-red-400" />}
               <span className={`text-xs font-semibold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
-                {Math.abs(parseFloat(percentChange))}%
+                {Math.abs(quote?.changePercent || parseFloat(percentChange))}%
               </span>
             </div>
           </div>
@@ -320,6 +334,9 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
           <p className="text-xs text-zinc-500 mb-5">
             Convert your verified Green Certificates into tradeable market listings.
           </p>
+          <p className="text-xs text-amber-300/80 mb-4">
+            Sell orders are permanent. You cannot delete one; use Buy back to close it at the live market price.
+          </p>
 
           <form onSubmit={handleListCertificate} className="space-y-4">
             <div>
@@ -355,6 +372,9 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
                 step="0.01"
                 disabled={actionLoading}
               />
+              <p className="text-[11px] text-zinc-500 mt-1">
+                Suggested live price: {formatCurrency(quote?.price || currentPrice)}. You can list higher for profit or lower for a faster sale.
+              </p>
             </div>
 
             <button
@@ -374,7 +394,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
             <ShoppingCart className="w-4 h-4 text-purple-400" /> Active Listings
           </h2>
           <p className="text-xs text-zinc-500 mb-5">
-            Verified green assets currently offered for purchase by participants.
+            Buy a verified certificate from another user. Your wallet pays the seller, and the certificate moves into your account.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[350px] overflow-y-auto pr-1">
@@ -391,6 +411,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
                       <span className="text-xs font-mono text-zinc-500">ID: {l.id.slice(0, 8)}...</span>
                       <span className="badge badge-purple font-mono text-xs">{l.carbonReduced} kg CO₂</span>
                     </div>
+                    <p className="text-xs text-indigo-400 font-mono mb-1">Project Token #{l.tokenId}</p>
                     <p className="text-sm text-zinc-300 font-semibold mb-1">Seller: {l.sellerName}</p>
                     <p className="text-xs text-zinc-500">Listed: {formatDate(l.createdAt)}</p>
                   </div>
@@ -399,12 +420,12 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
                     <span className="text-lg font-bold text-white tabular-nums">{formatCurrency(l.price)}</span>
                     {l.sellerId === userId ? (
                       <button
-                        onClick={() => handleCancelListing(l.id)}
+                        onClick={() => handleBuyBackListing(l.id)}
                         disabled={actionLoading}
                         className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
-                        title="Cancel Listing"
+                        title="Buy back at current market price"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <ArrowDownRight className="w-4 h-4" />
                       </button>
                     ) : (
                       <button

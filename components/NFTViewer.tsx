@@ -8,6 +8,7 @@ import { formatDate } from '../utils/formatters';
 interface NFTViewerProps {
   userId: string;
   token: string;
+  embedded?: boolean;
 }
 
 interface CarbonCredits {
@@ -38,9 +39,11 @@ interface OnchainRecord {
   timestamp: string;
   carbonRecordId?: string;
   carbonReduction: number;
+  baselineEmission?: number;
+  actualEmission?: number;
 }
 
-export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token }) => {
+export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token, embedded = false }) => {
   const [certificates, setCertificates] = useState<GreenCertificate[]>([]);
   const [credits, setCredits] = useState<CarbonCredits | null>(null);
   const [onchainRecords, setOnchainRecords] = useState<OnchainRecord[]>([]);
@@ -121,7 +124,7 @@ export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token }) => {
       });
 
       if (res.ok) {
-        setSuccess(`Green Certificate issued successfully for Token ID: ${record.tokenId}!`);
+        setSuccess(`Certificate for Token ID ${record.tokenId} is now verified and ready to list in the Carbon Market.`);
         await fetchNFTData();
       } else {
         const data = await res.json();
@@ -178,16 +181,16 @@ export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token }) => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="section-header">
+      {!embedded && <div className="section-header">
         <div className="relative z-10">
           <div className="flex items-center gap-2 mb-1">
             <Award className="w-5 h-5 text-accent-400" />
             <span className="text-xs font-semibold text-accent-400 uppercase tracking-wider">Digital Credentials</span>
           </div>
-          <h1 className="text-2xl font-bold text-white">Green Certificates</h1>
-          <p className="text-sm text-zinc-400 mt-1">Verified carbon reduction credentials & digital badges</p>
+          <h1 className="text-2xl font-bold text-white">Verified Certificates</h1>
+          <p className="text-sm text-zinc-400 mt-1">Created automatically after a blockchain-verified emission record</p>
         </div>
-      </div>
+      </div>}
 
       {/* Messages */}
       {error && (
@@ -294,11 +297,11 @@ export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token }) => {
 
       {/* Pending Blockchain Verifications Panel */}
       <div className="glass-card p-6">
-        <h2 className="text-sm font-bold text-white mb-4 uppercase tracking-wider flex items-center gap-1.5">
-          <Shield className="w-4 h-4 text-emerald-400" /> Pending Blockchain Verifications
+          <h2 className="text-sm font-bold text-white mb-4 uppercase tracking-wider flex items-center gap-1.5">
+          <Shield className="w-4 h-4 text-emerald-400" /> Certificate Verification
         </h2>
         <p className="text-xs text-zinc-500 mb-5">
-          Issue Green Certificate digital credentials for your verified on-chain carbon reduction records.
+          Every successful verified emission creates one certificate linked to its transaction hash.
         </p>
 
         {pendingCertRecords.length === 0 ? (
@@ -311,8 +314,8 @@ export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token }) => {
               <div key={r.id} className="p-4 rounded-xl bg-emerald-500/[0.02] border border-emerald-500/10 flex items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white">Token ID: {r.tokenId}</span>
-                    <span className="badge badge-green text-[10px] font-mono">{r.carbonReduction} kg CO₂</span>
+                    <span className="text-xs font-bold text-white">Project Token: {r.tokenId}</span>
+                    <span className="badge badge-green text-[10px] font-mono">{r.carbonReduction.toFixed(3)} kg avoided</span>
                   </div>
                   <p className="text-[10px] text-zinc-500 mt-1 font-mono break-all">Tx: {r.transactionHash}</p>
                 </div>
@@ -363,7 +366,7 @@ export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token }) => {
                   <div className="p-4">
                     <p className="text-xs text-zinc-600 font-mono mb-1.5">ID: {cert.id.slice(0, 16)}...</p>
                     <p className="text-sm font-semibold text-white mb-2">
-                      {cert.carbonReduced} kg CO₂ Reduced
+                      {cert.carbonReduced.toFixed(3)} kg CO₂ avoided
                     </p>
                     <div className="flex items-center justify-between text-xs text-zinc-500 mb-2">
                       <span>Issued: {formatDate(cert.dateIssued)}</span>
@@ -375,7 +378,7 @@ export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token }) => {
                       )}
                     </div>
                     <p className="text-xs text-zinc-600 font-mono break-all">
-                      Token ID: {cert.tokenId}
+                      Project Token: {cert.tokenId}
                     </p>
                   </div>
                 </div>
@@ -411,9 +414,19 @@ export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token }) => {
                   <p className="font-mono text-sm text-zinc-300 break-all mt-1">{selectedCert.id}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">Carbon Reduced</p>
-                  <p className="text-3xl font-bold text-white mt-1">{selectedCert.carbonReduced} <span className="text-lg text-zinc-500">kg</span></p>
-                  <p className="text-xs text-zinc-500">CO₂ Equivalent</p>
+                  <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">CO₂ Avoided vs Baseline</p>
+                  <p className="text-3xl font-bold text-white mt-1">{selectedCert.carbonReduced.toFixed(3)} <span className="text-lg text-zinc-500">kg</span></p>
+                  <p className="text-xs text-zinc-500">Baseline means 1.5x the optimized usage</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="rounded-lg bg-white/[0.03] p-3">
+                    <p className="text-zinc-500">Baseline CO₂</p>
+                    <p className="text-white font-semibold mt-1">{(selectedCert.baselineEmission ?? selectedCert.carbonReduced * 1.5).toFixed(3)} kg</p>
+                  </div>
+                  <div className="rounded-lg bg-white/[0.03] p-3">
+                    <p className="text-zinc-500">Actual CO₂</p>
+                    <p className="text-white font-semibold mt-1">{(selectedCert.actualEmission ?? selectedCert.carbonReduced * 0.5).toFixed(3)} kg</p>
+                  </div>
                 </div>
                 <div>
                   <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider mb-1">Grade</p>
@@ -430,7 +443,7 @@ export const NFTViewer: React.FC<NFTViewerProps> = ({ userId, token }) => {
 
               <div className="space-y-5">
                 <div>
-                  <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">Token ID (Local Blockchain)</p>
+                  <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">Project Token ID (Local Blockchain)</p>
                   <p className="font-mono text-xs text-zinc-400 break-all mt-1">{selectedCert.tokenId}</p>
                 </div>
                 <div>

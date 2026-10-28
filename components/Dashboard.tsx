@@ -49,19 +49,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ userId, token }) => {
 
   const fetchIoTData = async () => {
     try {
-      const [latest, readings, status, summary] = await Promise.all([
+      const results = await Promise.allSettled([
         getLatestReading(),
         getIoTReadings(50),
         getIoTStatus(),
         getHourlySummary(token)
       ]);
 
-      setIotReading(latest.reading);
+      const latest = results[0].status === 'fulfilled' ? results[0].value : null;
+      const readings = results[1].status === 'fulfilled' ? results[1].value : { readings: [] };
+      const status = results[2].status === 'fulfilled' ? results[2].value : null;
+      const summary = results[3].status === 'fulfilled' ? results[3].value : [];
+
+      const fallbackSummary = readings.readings.reduce((groups: any[], reading) => {
+        const date = new Date(reading.receivedAt || reading.timestamp);
+        const time = `${date.getHours().toString().padStart(2, '0')}:00`;
+        const existing = groups.find((item) => item.time === time);
+        if (existing) {
+          existing.consumption += reading.energy || 0;
+          existing.emission += ((reading.energy || 0) * intensity) / 1000;
+        } else {
+          groups.push({
+            time,
+            consumption: reading.energy || 0,
+            emission: ((reading.energy || 0) * intensity) / 1000,
+            carbonIntensity: intensity
+          });
+        }
+        return groups;
+      }, []);
+
+      setIotReading(latest?.reading || readings.readings[readings.readings.length - 1] || null);
       setIotReadings(readings.readings);
       setIotStatus(status);
-      setHourlyData(summary);
-      setTotalDayEmission(summary.reduce((sum, item) => sum + (item.emission || 0), 0));
-      setIotError('');
+      setHourlyData(summary.length > 0 ? summary : fallbackSummary);
+      setTotalDayEmission((summary.length > 0 ? summary : fallbackSummary).reduce((sum, item) => sum + (item.emission || 0), 0));
+      setIotError(latest || readings.readings.length > 0 ? '' : 'Backend unavailable');
     } catch (error) {
       setIotError('Backend unavailable');
     } finally {

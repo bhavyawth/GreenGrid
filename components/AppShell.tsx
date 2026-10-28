@@ -4,15 +4,14 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Award, BarChart3, Lock, LogOut, Menu, TrendingUp, X, Zap } from 'lucide-react';
+import { BarChart3, Lock, LogOut, Menu, TrendingUp, X, Zap } from 'lucide-react';
 import { useAuth } from './AuthContext';
 
 const tabs = [
   { href: '/dashboard', label: 'Dashboard', icon: <BarChart3 className="w-[18px] h-[18px]" /> },
   { href: '/ai', label: 'AI Forecasting', icon: <Zap className="w-[18px] h-[18px]" /> },
   { href: '/carbon-ledger', label: 'Blockchain Ledger', icon: <Lock className="w-[18px] h-[18px]" /> },
-  { href: '/carbon-market', label: 'Market', icon: <TrendingUp className="w-[18px] h-[18px]" /> },
-  { href: '/nft', label: 'Green Certificates', icon: <Award className="w-[18px] h-[18px]" /> }
+  { href: '/carbon-market', label: 'Market', icon: <TrendingUp className="w-[18px] h-[18px]" /> }
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
