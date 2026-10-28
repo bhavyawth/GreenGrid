@@ -19,6 +19,8 @@ async function setup() {
   console.log('Connected successfully!');
 
   try {
+    await client.query('BEGIN');
+
     // 1. Create devices table
     console.log('Creating "devices" table...');
     await client.query(`
@@ -119,13 +121,96 @@ async function setup() {
       );
     `);
 
+    // 7. Create user energy data table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_energy_data (
+        user_id VARCHAR(100) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        readings JSONB NOT NULL DEFAULT '[]'::jsonb,
+        hourly_readings JSONB NOT NULL DEFAULT '[]'::jsonb,
+        total_energy_used NUMERIC NOT NULL DEFAULT 0
+      );
+    `);
+
+    // 8. Create local off-chain ledger table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS local_blockchain (
+        id VARCHAR(100) PRIMARY KEY,
+        user_id VARCHAR(100),
+        user_name VARCHAR(255),
+        type VARCHAR(100) NOT NULL,
+        amount NUMERIC NOT NULL,
+        description TEXT,
+        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        previous_hash VARCHAR(255) NOT NULL,
+        nonce BIGINT NOT NULL,
+        hash VARCHAR(255) NOT NULL
+      );
+    `);
+
+    // 9. Create user credits table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_credits (
+        user_id VARCHAR(100) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        available NUMERIC NOT NULL DEFAULT 100,
+        verified NUMERIC NOT NULL DEFAULT 100,
+        retired NUMERIC NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 10. Create green certificates table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS green_certificates (
+        id UUID PRIMARY KEY,
+        owner_id VARCHAR(100) NOT NULL REFERENCES users(id),
+        carbon_reduced NUMERIC NOT NULL,
+        date_issued TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        token_id VARCHAR(100) NOT NULL,
+        verified BOOLEAN NOT NULL DEFAULT TRUE,
+        blockchain_txn VARCHAR(255)
+      );
+    `);
+
+    // 11. Create carbon market tables
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS market_listings (
+        id UUID PRIMARY KEY,
+        seller_id VARCHAR(100) NOT NULL REFERENCES users(id),
+        certificate_id UUID NOT NULL REFERENCES green_certificates(id),
+        quantity NUMERIC NOT NULL DEFAULT 1,
+        price NUMERIC NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS market_trades (
+        id UUID PRIMARY KEY,
+        listing_id UUID NOT NULL REFERENCES market_listings(id),
+        buyer_id VARCHAR(100) NOT NULL REFERENCES users(id),
+        seller_id VARCHAR(100) NOT NULL REFERENCES users(id),
+        certificate_id UUID NOT NULL REFERENCES green_certificates(id),
+        quantity NUMERIC NOT NULL,
+        price NUMERIC NOT NULL,
+        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query('COMMIT');
     console.log('Database tables setup successfully!');
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error during database setup:', error);
+    process.exitCode = 1;
   } finally {
     await client.end();
     console.log('Database connection closed.');
   }
 }
 
-setup();
+setup().catch((error) => {
+  console.error('Database setup failed:', error);
+  process.exitCode = 1;
+});

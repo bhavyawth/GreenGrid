@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:ai": "python -m uvicorn app.main:app --port 8000 --app-dir D:/ai_service",
+    "db:setup": "node scripts/db-setup.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
