@@ -9,8 +9,18 @@ export async function GET(request: NextRequest) {
   if (!token || !verifyToken(token)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const reading = await getLatestIoTEnergyReading();
-  const power = reading?.power || 1000;
+  const power = reading ? Number(reading.power) : null;
   const referencePower = 1000;
+  if (power === null || !Number.isFinite(power) || power < 0) {
+    return NextResponse.json({
+      price: null,
+      power: null,
+      referencePower,
+      changePercent: null,
+      explanation: 'A valid PZEM reading is required to calculate this internal reference estimate.',
+    });
+  }
+
   const pressure = Math.max(-0.1, Math.min(0.1, ((power - referencePower) / referencePower) * 0.1));
   const price = Number((25 * (1 + pressure)).toFixed(2));
   return NextResponse.json({
@@ -18,6 +28,6 @@ export async function GET(request: NextRequest) {
     power,
     referencePower,
     changePercent: Number((pressure * 100).toFixed(2)),
-    explanation: power > 5 ? 'Higher electricity usage is increasing carbon demand.' : 'Lower electricity usage is keeping carbon demand and price lower.'
+    explanation: `Internal estimate based on measured power relative to a ${referencePower} W reference. It is not an external carbon-market price.`,
   });
 }

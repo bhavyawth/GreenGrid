@@ -41,9 +41,7 @@ export interface GreenCertificate {
   id: string;
   owner: string;
   ownerId?: string;
-  carbonReduced: number; // kg CO2
-  baselineEmission?: number;
-  actualEmission?: number;
+  carbonReduced: number; // Legacy stored amount; unit and methodology are not validated.
   dateIssued: Date | string;
   tokenId: string;
   verified: boolean;

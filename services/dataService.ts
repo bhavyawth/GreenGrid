@@ -3,8 +3,6 @@ import {
   CarbonEmission,
   Forecast,
   CarbonCredits,
-  MarketData,
-  NewsEvent,
   GreenCertificate
 } from '../types/index';
 
@@ -106,55 +104,6 @@ export function addCarbonCredits(userId: string, amount: number): CarbonCredits 
   return credits;
 }
 
-// Market simulation
-export function generateMarketData(basePrice: number = 25): MarketData[] {
-  const data: MarketData[] = [];
-  let price = basePrice;
-
-  for (let i = 0; i < 30; i++) {
-    const change = (Math.random() - 0.45) * 4;
-    price = Math.max(10, price + change);
-
-    data.push({
-      timestamp: new Date(Date.now() - (30 - i) * 24 * 60 * 60 * 1000),
-      price: parseFloat(price.toFixed(2)),
-      volume: Math.floor(Math.random() * 100000) + 10000,
-      trend: change > 0 ? 'UP' : change < 0 ? 'DOWN' : 'STABLE'
-    });
-  }
-
-  return data;
-}
-
-// News events affecting market
-export function generateNewsEvents(): NewsEvent[] {
-  const events: NewsEvent[] = [
-    {
-      id: '1',
-      timestamp: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-      title: 'Global renewable energy capacity exceeds 4000 GW',
-      impact: 2,
-      description: 'IEA reports record renewable energy expansion'
-    },
-    {
-      id: '2',
-      timestamp: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-      title: 'New carbon pricing regulation in EU',
-      impact: 3,
-      description: 'EU increases carbon credit requirements'
-    },
-    {
-      id: '3',
-      timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-      title: 'Tech companies commit to carbon neutrality',
-      impact: 2,
-      description: 'Microsoft and Google announce 2030 goals'
-    }
-  ];
-
-  return events;
-}
-
 // Green Certificate (NFT) simulation
 export function generateGreenCertificate(userId: string, carbonReduced: number): GreenCertificate {
   const id = `CERT_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -184,28 +133,10 @@ export function addCertificate(userId: string, certificate: GreenCertificate): v
   localStorage.setItem(`certs_${userId}`, JSON.stringify(certs));
 }
 
-// Real-time data streams
+// Simulated IoT data stream
 export function subscribeToEnergyUpdates(callback: (reading: EnergyReading) => void, interval: number = 3000): () => void {
   const intervalId = setInterval(() => {
     callback(generateEnergyReading());
-  }, interval);
-
-  return () => clearInterval(intervalId);
-}
-
-export function subscribeToMarketUpdates(callback: (data: MarketData) => void, interval: number = 5000): () => void {
-  let lastPrice = 25;
-
-  const intervalId = setInterval(() => {
-    const change = (Math.random() - 0.45) * 2;
-    lastPrice = Math.max(10, lastPrice + change);
-
-    callback({
-      timestamp: new Date(),
-      price: parseFloat(lastPrice.toFixed(2)),
-      volume: Math.floor(Math.random() * 50000) + 5000,
-      trend: change > 0 ? 'UP' : change < 0 ? 'DOWN' : 'STABLE'
-    });
   }, interval);
 
   return () => clearInterval(intervalId);

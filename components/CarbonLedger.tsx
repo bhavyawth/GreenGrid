@@ -12,7 +12,7 @@ interface CarbonLedgerProps {
   userName: string;
 }
 
-export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userName }) => {
+export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token }) => {
   const [transactions, setTransactions] = useState<BlockchainTransaction[]>([]);
   const [chain, setChain] = useState<BlockchainTransaction[]>([]);
   const [chainValid, setChainValid] = useState(true);
@@ -65,25 +65,20 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
         Authorization: `Bearer ${token}`
       };
       
-      const amount = parseFloat((Math.random() * 5 + 0.5).toFixed(2));
       const res = await fetch(`${API_BASE}/blockchain/transaction`, {
         method: 'POST',
-        headers,
-        body: JSON.stringify({
-          type: 'EMISSION_RECORDED',
-          amount,
-          description: `Emission transaction recorded by ${userName}`
-        })
+        headers
       });
 
       if (res.ok) {
         const data = await res.json();
-        setSuccess(data.certificateIssued
-          ? 'Emission recorded, verified on the local blockchain, and certificate issued automatically.'
-          : 'Emission recorded in the ledger. Blockchain verification is still pending.');
+        setSuccess(data.onchain?.success
+          ? 'Estimated emissions for the latest PZEM interval were recorded in the ledger and attested on the local blockchain.'
+          : 'Estimated emissions for the latest PZEM interval were recorded in the ledger; the on-chain attestation did not complete.');
         await fetchData();
       } else {
-        setError('Failed to record emission transaction.');
+        const data = await res.json();
+        setError(data.error || 'Failed to record estimated emissions.');
       }
     } catch (err) {
       console.error('Error adding transaction:', err);
@@ -116,7 +111,7 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
             <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Immutable Ledger</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Carbon Blockchain Ledger</h1>
-          <p className="text-sm text-zinc-400 mt-1">Records actual emissions and certifies the CO₂ avoided versus a 1.5x unoptimized baseline.</p>
+          <p className="text-sm text-zinc-400 mt-1">Records estimated emissions for measured PZEM energy intervals; it does not certify avoided emissions.</p>
         </div>
       </div>
 
@@ -156,7 +151,7 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
         <div className="metric-card accent-green">
           <div className="flex items-start justify-between relative z-10">
             <div>
-              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Verified Emissions</p>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Estimated Emissions</p>
               <p className="text-2xl font-bold text-white mt-2">{formatKilograms(totalEmissionRecorded)}</p>
               <p className="text-xs text-zinc-500 mt-1.5">Total CO₂ recorded</p>
             </div>
@@ -181,7 +176,7 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
         ) : (
           <>
             <Plus className="w-4 h-4" />
-            <span>Record Emission & Issue Certificate</span>
+            <span>Record Latest PZEM Interval</span>
           </>
         )}
       </button>
@@ -249,7 +244,9 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
                         </span>
                       </td>
                       <td className="font-semibold text-white tabular-nums">
-                        {tx.amount.toFixed(2)} kg CO₂
+                        {tx.type === 'EMISSION_RECORDED' || tx.type === 'emission'
+                          ? `${tx.amount.toFixed(4)} kg CO₂e estimated emissions`
+                          : `${tx.amount.toFixed(2)} app units`}
                       </td>
                       <td className="text-sm text-zinc-500">
                         {formatDate(tx.timestamp)}
@@ -269,7 +266,9 @@ export const CarbonLedger: React.FC<CarbonLedgerProps> = ({ userId, token, userN
                               </div>
                               <div>
                                 <p className="text-xs text-zinc-500 font-semibold mb-1">Description</p>
-                                <p className="text-xs text-zinc-300">{tx.description || `Transaction of ${tx.amount} kg CO₂`}</p>
+                                <p className="text-xs text-zinc-300">
+                                  {tx.description || `Transaction amount: ${tx.amount} (unit depends on transaction type)`}
+                                </p>
                               </div>
                             </div>
                             <div>

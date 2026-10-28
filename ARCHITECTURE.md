@@ -14,7 +14,7 @@ This document records the implementation and verified limitations in this reposi
 | Firmware | `esp32/GreenGridESP32/GreenGridESP32.ino` publishes PZEM readings to `energy/ESP32-001` every two seconds. Wi-Fi credentials remain placeholders. |
 | Grid-carbon provider | No Electricity Maps, WattTime, or other live provider is configured. Carbon calculations use a configured estimate, not observed regional grid data. |
 | Blockchain | Next.js server-side Viem client plus the Hardhat contract project in `CarbonCreditBlockchain-main/`. The off-chain proof-of-work ledger is also stored in PostgreSQL. |
-| Tests | The FastAPI service has 10 regression/API tests. The Next.js project has no project-owned automated test suite. |
+| Tests | The FastAPI service has 11 regression/API tests. The Next.js project has no project-owned automated test suite. |
 
 ## Verified data flows
 
@@ -30,11 +30,19 @@ Login/register route handlers issue a 24-hour JWT using a configured, non-placeh
 
 ### AI
 
-`/api/ai/{status,predict,forecast}` calls the FastAPI service through `lib/server/ai/client.ts`. Emissions are calculated from interval kWh and a configured gCO₂e/kWh factor; confidence is explicitly unavailable. The LS-SVM endpoint is experimental and requires at least eight regular hourly observations. GreenGrid has no validated hourly grid observations configured, so its forecast route now reports that it cannot produce a grid forecast instead of treating PZEM demand readings as grid-carbon data. The service health response correctly reports that no trained model is ready.
+`/api/ai/{status,predict,forecast}` calls the FastAPI service through `lib/server/ai/client.ts`. Emissions are calculated from interval kWh and a configured gCO₂e/kWh factor; confidence is explicitly unavailable. The experimental LS-SVM predicts regional grid-carbon intensity, refits per request, and requires 48–336 ordered hourly observations with a 24-hour lag. The synthetic backtest is not evidence of real-world accuracy. GreenGrid has no validated hourly grid observations configured, so its forecast route reports that it cannot produce a grid forecast instead of treating PZEM demand readings as grid-carbon data. The service health response correctly reports that no trained model is ready.
 
 ### Blockchain
 
 Authenticated UI actions call Next.js blockchain route handlers. Those handlers write to the PostgreSQL off-chain ledger and, where configured and reachable, call the Solidity contract through Viem. The contract is a local/demo proof of concept; it is not evidence of a deployed production carbon-credit registry. Earlier live checks found the configured RPC unreachable and contract reads failing; deployment must be reverified before presenting any on-chain claim.
+
+### Carbon claims and market
+
+The blockchain transaction endpoint calculates estimated emissions from the difference between the latest and previous reading from the same meter, then applies `interval kWh × configured gCO₂e/kWh ÷ 1000`. It rejects non-increasing readings and repeat submissions for the same meter reading. This is an emissions estimate, not avoided carbon. The grid factor is still a configured estimate, not a live regional observation.
+
+Avoided emissions require a documented baseline compared with actual use over a matching period. The project does not yet have that baseline methodology, so certificate issuance returns 409 and direct client-supplied on-chain attestations are disabled. Existing certificate/credit rows are retained but are labeled as app records with unvalidated amounts; they are not verified offsets.
+
+The marketplace uses actual GreenGrid database rows: active seller-entered prices determine the current asking-price summary, and completed in-app trades determine the price-history chart. These are platform-level offers/trades, not a global carbon-credit benchmark. The app records ownership changes but does not process cash payments, validate credit quantities, or connect to an external market feed. When there are no listings or trades, the UI shows no data instead of generating prices.
 
 ## Demo load scaling
 
@@ -60,7 +68,7 @@ No provider or region is configured. Based on the official product information, 
 ## Local verification notes
 
 - `npx tsc --noEmit` passed after the recent TypeScript changes.
-- The FastAPI regression suite passed: 10 tests.
+- The FastAPI regression suite passed: 11 tests.
 - Anonymous access to `/api/energy/iot/latest` returned 401 as intended.
 - FastAPI `/health` and the active Next.js `/api/ai/status` both report `models_loaded: false` and `trained_models_ready: false`.
 - Registration and sign-in succeeded through the local app; authenticated IoT routes and the hourly summary returned 200, while anonymous IoT access returned 401. Temporary verification users were removed after each test.

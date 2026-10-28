@@ -165,6 +165,21 @@ export async function updateUser(userId: string, updates: any) {
   return findUserById(userId);
 }
 
+export async function addCarbonRecord(record: {
+  id: string;
+  deviceId: string;
+  carbonEmission: number;
+  timestamp: string;
+}) {
+  await query(
+    `INSERT INTO carbon_records (id, energy_reading_id, device_id, carbon_emission, timestamp)
+     VALUES ($1, $1, $2, $3, $4)
+     ON CONFLICT (id) DO UPDATE
+     SET carbon_emission = EXCLUDED.carbon_emission, timestamp = EXCLUDED.timestamp`,
+    [record.id, record.deviceId, record.carbonEmission, record.timestamp]
+  );
+}
+
 // readUsers gets all users
 export async function readUsers() {
   if (!process.env.DB_URI) {
@@ -263,6 +278,21 @@ export async function getLatestIoTEnergyReading() {
     powerFactor: Number(r.power_factor),
     timestamp: r.timestamp,
     receivedAt: r.received_at,
+  };
+}
+
+export async function getPreviousIoTEnergyReading(reading: { id: string; deviceId: string; timestamp: string | Date }) {
+  const res = await query(
+    'SELECT * FROM energy_readings WHERE device_id = $1 AND id <> $2 AND timestamp < $3 ORDER BY timestamp DESC LIMIT 1',
+    [reading.deviceId, reading.id, reading.timestamp]
+  );
+  if (res.rows.length === 0) return null;
+  const r = res.rows[0];
+  return {
+    id: r.id,
+    deviceId: r.device_id,
+    energy: Number(r.energy),
+    timestamp: r.timestamp,
   };
 }
 
@@ -440,8 +470,6 @@ export async function getGreenCertificates(ownerId: string) {
     tokenId: r.token_id,
     verified: Boolean(r.verified),
     blockchainTxn: r.blockchain_txn
-    ,baselineEmission: Number(r.baseline_emission || 0)
-    ,actualEmission: Number(r.actual_emission || 0)
   }));
 }
 
@@ -460,56 +488,7 @@ export async function getGreenCertificateById(id: string) {
     tokenId: r.token_id,
     verified: Boolean(r.verified),
     blockchainTxn: r.blockchain_txn
-    ,baselineEmission: Number(r.baseline_emission || 0)
-    ,actualEmission: Number(r.actual_emission || 0)
   };
-}
-
-export async function addGreenCertificate(cert: {
-  id: string;
-  ownerId: string;
-  carbonReduced: number;
-  dateIssued?: string;
-  tokenId: string;
-  verified?: boolean;
-  blockchainTxn?: string;
-  baselineEmission?: number;
-  actualEmission?: number;
-}) {
-  if (!process.env.DB_URI) {
-    demoStore.greengridDemoCertificates ||= [];
-    const saved = {
-      ...cert,
-      dateIssued: cert.dateIssued || new Date().toISOString(),
-      verified: cert.verified !== undefined ? cert.verified : true,
-      baselineEmission: cert.baselineEmission || cert.carbonReduced,
-      actualEmission: cert.actualEmission || cert.carbonReduced,
-    };
-    demoStore.greengridDemoCertificates.push(saved);
-    await updateUserCredits(cert.ownerId, Math.round(cert.carbonReduced / 10), Math.round(cert.carbonReduced / 10));
-    return saved;
-  }
-  await query(
-    `INSERT INTO green_certificates (id, owner_id, carbon_reduced, date_issued, token_id, verified, blockchain_txn, baseline_emission, actual_emission)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [
-      cert.id,
-      cert.ownerId,
-      cert.carbonReduced,
-      cert.dateIssued ? new Date(cert.dateIssued) : new Date(),
-      cert.tokenId,
-      cert.verified !== undefined ? cert.verified : true,
-      cert.blockchainTxn || null,
-      cert.baselineEmission || cert.carbonReduced,
-      cert.actualEmission || cert.carbonReduced
-    ]
-  );
-  
-  // Award 0.1 carbon credits per kg CO2 reduced
-  const creditsEarned = Math.round(cert.carbonReduced / 10);
-  await updateUserCredits(cert.ownerId, creditsEarned, creditsEarned, 0);
-
-  return cert;
 }
 
 export async function createMarketListing(l: {
@@ -692,20 +671,9 @@ export async function getBlockchainRecords(): Promise<Array<{
   status: string;
   timestamp: string;
   carbonRecordId?: string;
-  carbonReduction?: number;
 }>> {
   if (!process.env.DB_URI) {
-    return demoTransactions().map((transaction, index) => ({
-      id: transaction.id,
-      tokenId: String(index + 1),
-      transactionHash: transaction.hash,
-      chainId: 31337,
-      contractAddress: 'simulated-local-contract',
-      status: 'verified',
-      timestamp: transaction.timestamp,
-      carbonRecordId: transaction.id,
-      carbonReduction: Number((transaction.amount * 10).toFixed(2)),
-    }));
+    return [];
   }
   const res = await query('SELECT * FROM blockchain_records ORDER BY timestamp DESC');
   return res.rows.map(r => ({

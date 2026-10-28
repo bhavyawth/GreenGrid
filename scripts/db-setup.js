@@ -168,12 +168,11 @@ async function setup() {
         carbon_reduced NUMERIC NOT NULL,
         date_issued TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         token_id VARCHAR(100) NOT NULL,
-        verified BOOLEAN NOT NULL DEFAULT TRUE,
+        verified BOOLEAN NOT NULL DEFAULT FALSE,
         blockchain_txn VARCHAR(255)
       );
     `);
-    await client.query(`ALTER TABLE green_certificates ADD COLUMN IF NOT EXISTS baseline_emission NUMERIC NOT NULL DEFAULT 0;`);
-    await client.query(`ALTER TABLE green_certificates ADD COLUMN IF NOT EXISTS actual_emission NUMERIC NOT NULL DEFAULT 0;`);
+    await client.query(`ALTER TABLE green_certificates ALTER COLUMN verified SET DEFAULT FALSE;`);
 
     // 11. Create carbon market tables
     await client.query(`

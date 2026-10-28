@@ -13,7 +13,13 @@ export async function POST(request: NextRequest) {
     const { listingId } = await request.json();
     if (!listingId) return NextResponse.json({ error: 'listingId is required' }, { status: 400 });
     const reading = await getLatestIoTEnergyReading();
-    const power = reading?.power || 1000;
+    const power = reading ? Number(reading.power) : null;
+    if (power === null || !Number.isFinite(power) || power < 0) {
+      return NextResponse.json(
+        { error: 'A valid PZEM reading is required to calculate the internal buy-back estimate.' },
+        { status: 409 }
+      );
+    }
     const currentPrice = Number((25 * (1 + Math.max(-0.1, Math.min(0.1, ((power - 1000) / 1000) * 0.1)))).toFixed(2));
     return NextResponse.json(await buyBackMarketListing(listingId, sellerId, currentPrice));
   } catch (error: any) {

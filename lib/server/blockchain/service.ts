@@ -293,9 +293,8 @@ export async function recordIoTAttestation(params: {
     carbon: params.carbonKg,
   });
 
-  // carbonReduction in whole tCO2e*100 to avoid floats on-chain (1 kg CO2 = 0.001 tCO2e)
-  // We store as integer grams of CO2 to keep the number meaningful on-chain
-  const carbonGrams = BigInt(Math.max(1, Math.round(params.carbonKg * 1000)));
+  // The contract stores whole grams; API display values come from linked kg estimates.
+  const carbonGrams = BigInt(Math.round(params.carbonKg * 1000));
 
   return submitVerification(params.tokenId, carbonGrams, evidenceHash);
 }

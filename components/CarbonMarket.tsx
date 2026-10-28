@@ -1,10 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, TrendingDown, Newspaper, BarChart3, ArrowUpRight, ArrowDownRight, Plus, ShoppingCart, Shield, CheckCircle, AlertCircle, Loader } from 'lucide-react';
-import { MarketData, NewsEvent, GreenCertificate } from '../types/index';
-import { generateMarketData, generateNewsEvents } from '../services/dataService';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { ArrowDownRight, BarChart3, Plus, ShoppingCart, Shield, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { GreenCertificate } from '../types/index';
 import { formatCurrency, formatDate } from '../utils/formatters';
 
 interface CarbonMarketProps {
@@ -40,10 +39,15 @@ interface TradeHistory {
 }
 
 interface MarketQuote {
-  price: number;
-  power: number;
-  changePercent: number;
+  price: number | null;
+  power: number | null;
+  changePercent: number | null;
   explanation: string;
+}
+
+interface TradePricePoint {
+  timestamp: string;
+  price: number;
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -51,11 +55,11 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return (
     <div className="glass-card-static px-4 py-3 text-sm">
       <p className="text-zinc-400 text-xs mb-1">
-        {typeof label === 'string' ? label : new Date(label).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        {new Date(label).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
       </p>
       {payload.map((entry: any, i: number) => (
         <p key={i} style={{ color: entry.color || '#a78bfa' }} className="font-medium">
-          {entry.name}: {typeof entry.value === 'number' ? (entry.name === 'Price' ? formatCurrency(entry.value) : `${(entry.value / 1000).toFixed(0)}K units`) : entry.value}
+          {entry.name}: {typeof entry.value === 'number' ? formatCurrency(entry.value) : entry.value}
         </p>
       ))}
     </div>
@@ -63,12 +67,6 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => {
-  // Static historical data for visual index charts
-  const [marketIndexData] = useState<MarketData[]>(generateMarketData());
-  const [newsEvents] = useState<NewsEvent[]>(generateNewsEvents());
-  const [currentPrice] = useState(marketIndexData[marketIndexData.length - 1]?.price || 25);
-
-  // Dynamic database-driven state
   const [listings, setListings] = useState<ActiveListing[]>([]);
   const [trades, setTrades] = useState<TradeHistory[]>([]);
   const [myCertificates, setMyCertificates] = useState<GreenCertificate[]>([]);
@@ -108,11 +106,13 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
       if (resQuote.ok) {
         const nextQuote = await resQuote.json();
         setQuote(nextQuote);
-        setListingPrice((current) => current || nextQuote.price.toFixed(2));
+        if (typeof nextQuote.price === 'number' && Number.isFinite(nextQuote.price)) {
+          setListingPrice((current) => current || nextQuote.price.toFixed(2));
+        }
       }
     } catch (err) {
       console.error('Error loading market data:', err);
-      setError('Failed to connect to the carbon credit marketplace.');
+      setError('Failed to connect to the GreenGrid marketplace.');
     } finally {
       setLoading(false);
     }
@@ -125,11 +125,11 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
   const handleListCertificate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCertId || !listingPrice || parseFloat(listingPrice) <= 0) {
-      setError('Please select a certificate and enter a valid price.');
+      setError('Please select an app record and enter a valid asking price.');
       return;
     }
     const confirmed = window.confirm(
-      `Confirm permanent listing at $${parseFloat(listingPrice).toFixed(2)}?\n\nThis sell order cannot be deleted. You can buy it back later at the live market price.`
+      `Confirm listing at your asking price of ${formatCurrency(parseFloat(listingPrice))}?\n\nThe listing can be bought back later at the platform's sensor-based reference estimate.`
     );
     if (!confirmed) return;
 
@@ -152,7 +152,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
       });
 
       if (res.ok) {
-        setSuccess('Certificate listed successfully on the carbon market!');
+        setSuccess('Your asking-price listing is live on GreenGrid.');
         setSelectedCertId('');
         setListingPrice('');
         await fetchMarketData();
@@ -184,7 +184,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
       });
 
       if (res.ok) {
-        setSuccess('Carbon credit certificate purchased successfully! Ownership updated.');
+        setSuccess('In-app trade completed and listing ownership updated.');
         await fetchMarketData();
       } else {
         const data = await res.json();
@@ -220,7 +220,8 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
         setSuccess(`Listing bought back at ${formatCurrency(data.price)}. Your certificate is back in your account.`);
         await fetchMarketData();
       } else {
-        setError('Listing may have already been closed or removed. Please refresh and try again.');
+        const data = await cancelRes.json();
+        setError(data.error || 'Listing may have already been closed or removed. Please refresh and try again.');
       }
     } catch (err) {
       setError('Connection error while cancelling listing.');
@@ -234,15 +235,12 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
     cert => !listings.some(l => l.certificateId === cert.id) && cert.ownerId === userId
   );
 
-  const priceChange = marketIndexData.length > 1
-    ? marketIndexData[marketIndexData.length - 1].price - marketIndexData[0].price
-    : 0;
-  const percentChange = ((priceChange / marketIndexData[0].price) * 100).toFixed(2);
-  const avgPrice = (marketIndexData.reduce((sum, d) => sum + d.price, 0) / marketIndexData.length).toFixed(2);
-  const maxPrice = Math.max(...marketIndexData.map(d => d.price));
-  const minPrice = Math.min(...marketIndexData.map(d => d.price));
-
-  const isUp = priceChange > 0;
+  const activeAskPrices = listings.map((listing) => listing.price).filter(Number.isFinite);
+  const lastTrade = trades[0] ?? null;
+  const tradePriceHistory: TradePricePoint[] = [...trades]
+    .reverse()
+    .map((trade) => ({ timestamp: trade.timestamp, price: trade.price }));
+  const totalTradeValue = trades.reduce((sum, trade) => sum + trade.price, 0);
 
   if (loading) {
     return (
@@ -260,12 +258,17 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
         <div className="relative z-10">
           <div className="flex items-center gap-2 mb-1">
             <BarChart3 className="w-5 h-5 text-purple-400" />
-            <span className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Market Intelligence</span>
+            <span className="text-xs font-semibold text-purple-400 uppercase tracking-wider">GreenGrid P2P Market</span>
           </div>
-          <h1 className="text-2xl font-bold text-white">Carbon Credit Market</h1>
-          <p className="text-sm text-zinc-400 mt-1">Electricity usage drives the index. Verified certificates can be sold for profit.</p>
-          <p className="text-xs text-zinc-500 mt-2">Your market wallet: {formatCurrency(walletBalance)} · Current simulated usage: {(quote?.power || 1000).toFixed(0)} W</p>
-          <p className="text-xs text-zinc-500 mt-2">Only verified certificates issued in Blockchain Ledger can be listed or bought here.</p>
+          <h1 className="text-2xl font-bold text-white">GreenGrid P2P Marketplace</h1>
+          <p className="text-sm text-zinc-400 mt-1">
+            GreenGrid participant offers and completed app trades. The meter-derived reference quote is an internal estimate, not an external benchmark.
+          </p>
+          <p className="text-xs text-zinc-500 mt-2">
+            Internal app wallet: {formatCurrency(walletBalance)} · {quote?.power === null || quote?.power === undefined
+              ? 'No current sensor power reading'
+              : `PZEM reading: ${quote.power.toFixed(1)} W`}
+          </p>
         </div>
       </div>
 
@@ -287,38 +290,39 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-stagger">
         <div className="metric-card accent-purple">
           <div className="relative z-10">
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Current Price Index</p>
-            <p className="text-3xl font-bold text-white mt-2 tabular-nums">{formatCurrency(quote?.price || currentPrice)}</p>
-            <div className="flex items-center gap-1.5 mt-1.5">
-              {isUp ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" /> : <ArrowDownRight className="w-3.5 h-3.5 text-red-400" />}
-              <span className={`text-xs font-semibold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
-                {Math.abs(quote?.changePercent || parseFloat(percentChange))}%
-              </span>
-            </div>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Meter-Based Reference Estimate</p>
+            <p className="text-3xl font-bold text-white mt-2 tabular-nums">
+              {quote?.price === null || !quote ? '—' : formatCurrency(quote.price)}
+            </p>
+            <p className="text-xs text-zinc-500 mt-1.5">Internal model suggestion; not a market quote</p>
           </div>
         </div>
 
         <div className="metric-card accent-blue">
           <div className="relative z-10">
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">24H Avg</p>
-            <p className="text-3xl font-bold text-white mt-2 tabular-nums">{formatCurrency(parseFloat(avgPrice))}</p>
-            <p className="text-xs text-zinc-500 mt-1.5">Average index price</p>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Last App Trade</p>
+            <p className="text-3xl font-bold text-white mt-2 tabular-nums">
+              {lastTrade ? formatCurrency(lastTrade.price) : '—'}
+            </p>
+            <p className="text-xs text-zinc-500 mt-1.5">
+              {lastTrade ? formatDate(lastTrade.timestamp) : 'No completed trades yet'}
+            </p>
           </div>
         </div>
 
         <div className="metric-card accent-green">
           <div className="relative z-10">
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">High (24h)</p>
-            <p className="text-3xl font-bold text-white mt-2 tabular-nums">{formatCurrency(maxPrice)}</p>
-            <p className="text-xs text-zinc-500 mt-1.5">Peak index price</p>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Active Listings</p>
+            <p className="text-3xl font-bold text-white mt-2 tabular-nums">{listings.length}</p>
+            <p className="text-xs text-zinc-500 mt-1.5">Current participant offers</p>
           </div>
         </div>
 
         <div className="metric-card accent-red">
           <div className="relative z-10">
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Low (24h)</p>
-            <p className="text-3xl font-bold text-white mt-2 tabular-nums">{formatCurrency(minPrice)}</p>
-            <p className="text-xs text-zinc-500 mt-1.5">Floor index price</p>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Completed App Trades</p>
+            <p className="text-3xl font-bold text-white mt-2 tabular-nums">{trades.length}</p>
+            <p className="text-xs text-zinc-500 mt-1.5">Internal ownership records; no cash settlement</p>
           </div>
         </div>
       </div>
@@ -329,19 +333,19 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
         {/* Sell / List Form */}
         <div className="glass-card p-6 h-fit">
           <h2 className="text-sm font-bold text-white mb-4 uppercase tracking-wider flex items-center gap-1.5">
-            <Plus className="w-4 h-4 text-purple-400" /> List Certificate
+            <Plus className="w-4 h-4 text-purple-400" /> List App Record
           </h2>
           <p className="text-xs text-zinc-500 mb-5">
-            Convert your verified Green Certificates into tradeable market listings.
+            Set your asking price in USD. Buyers can accept an offer inside the app; no external payment or credit registry is connected.
           </p>
           <p className="text-xs text-amber-300/80 mb-4">
-            Sell orders are permanent. You cannot delete one; use Buy back to close it at the live market price.
+            Buy back closes your listing using the platform's sensor-based reference estimate. This is an in-app balance operation, not a cash refund.
           </p>
 
           <form onSubmit={handleListCertificate} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-                Select Certificate
+                Select App Record
               </label>
               <select
                 value={selectedCertId}
@@ -349,10 +353,10 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
                 className="input-field w-full text-zinc-300"
                 disabled={actionLoading}
               >
-                <option value="">-- Choose Certificate --</option>
+                <option value="">-- Choose Record --</option>
                 {availableCertificates.map(c => (
                   <option key={c.id} value={c.id}>
-                    ID: {c.id.slice(0, 8)}... ({c.carbonReduced} kg CO₂)
+                    ID: {c.id.slice(0, 8)}... ({c.carbonReduced} CO₂e app-recorded units)
                   </option>
                 ))}
               </select>
@@ -373,7 +377,9 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
                 disabled={actionLoading}
               />
               <p className="text-[11px] text-zinc-500 mt-1">
-                Suggested live price: {formatCurrency(quote?.price || currentPrice)}. You can list higher for profit or lower for a faster sale.
+                {quote?.price !== null && quote
+                  ? `Internal reference estimate: ${formatCurrency(quote.price)}. This model is not an external market quote.`
+                  : 'No sensor-based reference estimate is available; enter your own asking price.'}
               </p>
             </div>
 
@@ -383,7 +389,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
               className="btn-primary w-full flex items-center justify-center gap-2"
             >
               {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
-              <span>{actionLoading ? 'Listing...' : 'List on Marketplace'}</span>
+              <span>{actionLoading ? 'Publishing...' : 'Publish Asking Price'}</span>
             </button>
           </form>
         </div>
@@ -394,7 +400,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
             <ShoppingCart className="w-4 h-4 text-purple-400" /> Active Listings
           </h2>
           <p className="text-xs text-zinc-500 mb-5">
-            Buy a verified certificate from another user. Your wallet pays the seller, and the certificate moves into your account.
+            Live offers from GreenGrid users. Accepting an offer updates in-app ownership and wallet records; prices are seller-set, and carbon amounts are not independently certified.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[350px] overflow-y-auto pr-1">
@@ -409,7 +415,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
                   <div>
                     <div className="flex justify-between items-start mb-2">
                       <span className="text-xs font-mono text-zinc-500">ID: {l.id.slice(0, 8)}...</span>
-                      <span className="badge badge-purple font-mono text-xs">{l.carbonReduced} kg CO₂</span>
+                      <span className="badge badge-purple font-mono text-xs">{l.carbonReduced} app-recorded units</span>
                     </div>
                     <p className="text-xs text-indigo-400 font-mono mb-1">Project Token #{l.tokenId}</p>
                     <p className="text-sm text-zinc-300 font-semibold mb-1">Seller: {l.sellerName}</p>
@@ -423,7 +429,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
                         onClick={() => handleBuyBackListing(l.id)}
                         disabled={actionLoading}
                         className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
-                        title="Buy back at current market price"
+                        title="Buy back at the internal sensor-based reference estimate"
                       >
                         <ArrowDownRight className="w-4 h-4" />
                       </button>
@@ -433,7 +439,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
                         disabled={actionLoading}
                         className="py-1.5 px-3 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-xs font-semibold flex items-center gap-1.5 transition-colors"
                       >
-                        <ShoppingCart className="w-3.5 h-3.5" /> Buy
+                        <ShoppingCart className="w-3.5 h-3.5" /> Accept offer
                       </button>
                     )}
                   </div>
@@ -475,7 +481,7 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
                     <td><code className="text-xs text-zinc-500 font-mono">{t.id.slice(0, 12)}...</code></td>
                     <td className="text-xs text-zinc-300">{t.sellerName}</td>
                     <td className="text-xs text-zinc-300">{t.buyerName}</td>
-                    <td className="font-semibold text-white text-xs">{t.carbonReduced} kg CO₂ Asset</td>
+                    <td className="font-semibold text-white text-xs">{t.carbonReduced} app-recorded units</td>
                     <td className="font-semibold text-purple-400 tabular-nums">{formatCurrency(t.price)}</td>
                     <td className="text-xs text-zinc-500">{formatDate(t.timestamp)}</td>
                   </tr>
@@ -488,105 +494,89 @@ export const CarbonMarket: React.FC<CarbonMarketProps> = ({ userId, token }) => 
 
       {/* Market Visualizations */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Index Price Chart */}
         <div className="lg:col-span-2 glass-card p-6">
-          <h2 className="text-sm font-semibold text-white mb-1">Carbon Index Price Tracker</h2>
-          <p className="text-xs text-zinc-500 mb-5">Historical index pricing trend indicator</p>
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={marketIndexData}>
-              <defs>
-                <linearGradient id="colorPriceDark" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-              <XAxis
-                dataKey="timestamp"
-                stroke="#52525b"
-                tick={{ fontSize: 11 }}
-                tickFormatter={(date) => {
-                  if (typeof date === 'string') return date;
-                  return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                }}
-              />
-              <YAxis stroke="#52525b" tick={{ fontSize: 11 }} />
-              <Tooltip content={<CustomTooltip />} />
-              <Area
-                type="monotone"
-                dataKey="price"
-                stroke="#a855f7"
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#colorPriceDark)"
-                name="Price"
-                activeDot={{ r: 4, fill: '#a855f7', stroke: '#0a0a0f', strokeWidth: 2 }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <h2 className="text-sm font-semibold text-white mb-1">Completed Trade Prices</h2>
+          <p className="text-xs text-zinc-500 mb-5">
+            Each point is a completed GreenGrid in-app trade at the listing price. This is not an external carbon-market index.
+          </p>
+          {tradePriceHistory.length === 0 ? (
+            <div className="h-[240px] flex flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.08] text-center px-6">
+              <ShoppingCart className="w-8 h-8 text-zinc-600 mb-3" />
+              <p className="text-sm text-zinc-300">No completed trades to chart yet</p>
+              <p className="text-xs text-zinc-500 mt-1">The chart will use actual app trades once a buyer accepts a listing.</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={tradePriceHistory}>
+                <defs>
+                  <linearGradient id="colorPriceDark" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                <XAxis
+                  dataKey="timestamp"
+                  stroke="#52525b"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(date) => new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                />
+                <YAxis stroke="#52525b" tick={{ fontSize: 11 }} tickFormatter={(price) => `$${price}`} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area
+                  type="monotone"
+                  dataKey="price"
+                  stroke="#a855f7"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorPriceDark)"
+                  name="Trade price"
+                  activeDot={{ r: 4, fill: '#a855f7', stroke: '#0a0a0f', strokeWidth: 2 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
-        {/* Market Summary Gauges */}
         <div className="glass-card p-6 h-fit">
-          <h3 className="text-sm font-semibold text-white mb-5">Market Sentiment Indicator</h3>
-          <div className="space-y-5">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-zinc-500">Market Sentiment</span>
-                <span className="text-xs font-bold text-emerald-400">Bullish</span>
-              </div>
-              <div className="progress-track">
-                <div className="progress-fill bg-emerald-500" style={{ width: '72%' }} />
-              </div>
+          <h3 className="text-sm font-semibold text-white mb-5">GreenGrid Market Snapshot</h3>
+          <div className="space-y-4">
+            <div className="flex justify-between gap-4 text-xs">
+              <span className="text-zinc-500">Active asking-price range</span>
+              <span className="text-zinc-300 text-right">
+                {activeAskPrices.length
+                  ? `${formatCurrency(Math.min(...activeAskPrices))} – ${formatCurrency(Math.max(...activeAskPrices))}`
+                  : 'No active offers'}
+              </span>
             </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-zinc-500">Trading Activity</span>
-                <span className="text-xs font-bold text-blue-400">High</span>
-              </div>
-              <div className="progress-track">
-                <div className="progress-fill bg-blue-500" style={{ width: '85%' }} />
-              </div>
+            <div className="flex justify-between gap-4 text-xs">
+              <span className="text-zinc-500">Recorded in-app trade value</span>
+              <span className="text-zinc-300">{formatCurrency(totalTradeValue)}</span>
             </div>
-
+            <div className="flex justify-between gap-4 text-xs">
+              <span className="text-zinc-500">External benchmark feed</span>
+              <span className="text-amber-400">Not connected</span>
+            </div>
             <div className="pt-4 border-t border-white/[0.06]">
-              <p className="text-xs text-zinc-500 font-semibold mb-3">Carbon Market Insights</p>
-              <ul className="space-y-2">
-                {['Direct peer-to-peer certificate trades', 'Instant database verification', 'Automatic balance settlement', 'Cryptographic on-chain asset trace'].map((item) => (
-                  <li key={item} className="text-xs text-zinc-400 flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-purple-500/60" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Listing prices are real offers entered by GreenGrid participants. Completed trades record in-app ownership
+                changes at those prices; the app does not process cash payments or certify the underlying carbon amount.
+              </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* News Intelligence */}
       <div className="glass-card p-6">
         <div className="flex items-center gap-2 mb-4">
-          <Newspaper className="w-4 h-4 text-purple-400" />
-          <h3 className="text-sm font-semibold text-white">Market Intelligence & Policy Updates</h3>
+          <Shield className="w-4 h-4 text-purple-400" />
+          <h3 className="text-sm font-semibold text-white">How this market price is formed</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {newsEvents.slice(0, 2).map((event) => (
-            <div key={event.id} className="p-4 rounded-lg bg-white/[0.02] border border-white/[0.04] flex flex-col justify-between">
-              <div>
-                <div className="flex justify-between items-start gap-4 mb-2">
-                  <p className="text-sm font-semibold text-white">{event.title}</p>
-                  <span className={`badge ${event.impact > 0 ? 'badge-green' : 'badge-red'} flex-shrink-0`}>
-                    {event.impact > 0 ? '+' : ''}{event.impact} Index
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-500">{event.description}</p>
-              </div>
-              <p className="text-[10px] text-zinc-600 mt-4">{formatDate(event.timestamp)}</p>
-            </div>
-          ))}
-        </div>
+        <p className="text-xs text-zinc-400 leading-relaxed">
+          The average active ask summarizes current seller offers. The trade chart uses actual prices attached to completed
+          GreenGrid trades. These are platform-level observations, not a global carbon-credit benchmark; no price is shown
+          when the platform has no listing or trade data.
+        </p>
       </div>
     </div>
   );
